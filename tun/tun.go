@@ -11,6 +11,7 @@ import "fmt"
 import "net"
 import "syscall"
 import "unsafe"
+import "runtime"
 
 const (
 	ADDRESS = iota
@@ -19,6 +20,8 @@ const (
 )
 
 type Tun interface {
+	// Return interface name
+	Name() string
 	// Return file descriptor of this interface
 	Fileno() int
 	GetFlags() (uint16, error)
@@ -54,6 +57,10 @@ func ioctl(cmd, ptr uintptr) error {
 		return nil
 	}
 	return errno
+}
+
+func (tun *_BaseTun) Name() string {
+	return tun.name
 }
 
 func (tun *_BaseTun) Fileno() int {
@@ -162,7 +169,15 @@ func (tun *_BaseTun) Destroy() error {
 
 // New TUN device
 func New(name string) (Tun, error) {
-	utun := &UTun{}
-	err := utun.Create(name)
-	return utun, err
+	var tun Tun
+	switch runtime.GOOS {
+	case "darwin":
+		tun = &UTun{}
+	case "linux":
+		tun = &LinuxTun{}
+	default:
+		return nil, fmt.Errorf("Tun not supported in %v", runtime.GOOS)
+	}
+	err := tun.Create(name)
+	return tun, err
 }

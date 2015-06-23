@@ -40,6 +40,10 @@ type _sockaddr_ctl struct {
 }
 
 func (tun *UTun) Create(name string) error {
+	if name[0] != 'u' {
+		name = "u" + name
+	}
+
 	tun.name = name
 	var id int
 

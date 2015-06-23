@@ -11,6 +11,7 @@ import "strings"
 import "testing"
 import "os/exec"
 import "net"
+import "runtime"
 
 func _check_ifconfig(t *testing.T, name string, substring string) {
 	output, err := exec.Command("ifconfig", name).Output()
@@ -25,7 +26,7 @@ func _check_ifconfig(t *testing.T, name string, substring string) {
 }
 
 func TestTunParams(t *testing.T) {
-	tun, err := New("utun2")
+	tun, err := New("tun2")
 	if err != nil {
 		t.Fatalf("Error when creating tun: %v", err)
 	}
@@ -33,9 +34,15 @@ func TestTunParams(t *testing.T) {
 	tun.SetIPv4(DST_ADDRESS, net.ParseIP("10.42.0.2"))
 	tun.SetIPv4(NETMASK, net.ParseIP("255.255.255.0"))
 
-	_check_ifconfig(t, "utun2", "inet 10.42.0.1")
-	_check_ifconfig(t, "utun2", "-> 10.42.0.2")
-	_check_ifconfig(t, "utun2", "netmask 0xffffff00")
+	if runtime.GOOS == "darwin" {
+		_check_ifconfig(t, tun.Name(), "inet 10.42.0.1")
+		_check_ifconfig(t, tun.Name(), "-> 10.42.0.2")
+		_check_ifconfig(t, tun.Name(), "netmask 0xffffff00")
+	} else {
+		_check_ifconfig(t, tun.Name(), "inet 10.42.0.1")
+		_check_ifconfig(t, tun.Name(), "destination 10.42.0.2")
+		_check_ifconfig(t, tun.Name(), "netmask 255.255.255.0")
+	}
 
 	if ip, e := tun.GetIPv4(ADDRESS); e != nil || !ip.Equal(net.ParseIP("10.42.0.1")) {
 		t.Errorf("Address %v not equal", ip)
@@ -48,7 +55,7 @@ func TestTunParams(t *testing.T) {
 	}
 
 	tun.SetMTU(1380)
-	_check_ifconfig(t, "utun2", "mtu 1380")
+	_check_ifconfig(t, tun.Name(), "mtu 1380")
 	if mtu, e := tun.GetMTU(); e != nil || mtu != 1380 {
 		t.Errorf("MTU error: %v", mtu)
 	}
