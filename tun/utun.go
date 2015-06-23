@@ -13,6 +13,7 @@ import "strconv"
 import "syscall"
 import "unsafe"
 import "net"
+import "encoding/binary"
 
 const (
 	_CTLIOCGINFO      = 3227799043
@@ -86,4 +87,28 @@ func (tun *UTun) Create(name string) error {
 	tun.SetIPv4(NETMASK, net.IPv4(255, 255, 255, 255))
 
 	return nil
+}
+
+func (tun *UTun) Read(n int) ([]byte, error) {
+	buf := make([]byte, 4+n)
+	if rdlen, err := syscall.Read(tun.fd, buf); err != nil {
+		return nil, err
+	} else {
+		return buf[4:rdlen], nil
+	}
+}
+
+func (tun *UTun) Write(buf []byte) (int, error) {
+	if len(buf) == 0 {
+		return 0, nil
+	}
+	write_buf := make([]byte, 4+len(buf))
+	if ip_version := buf[0] >> 4; ip_version == 6 {
+		binary.BigEndian.PutUint32(write_buf, syscall.AF_INET6)
+	} else {
+		binary.BigEndian.PutUint32(write_buf, syscall.AF_INET)
+	}
+	copy(write_buf[4:], buf)
+	n, err := syscall.Write(tun.fd, write_buf)
+	return n - 4, err
 }

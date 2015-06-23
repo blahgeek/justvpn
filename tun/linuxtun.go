@@ -51,3 +51,13 @@ func (tun *LinuxTun) Up() error {
 	}
 	return tun.SetFlags(flags | _IFF_UP)
 }
+
+func (tun *LinuxTun) Read(n int) ([]byte, error) {
+	buf := make([]byte, n)
+	n, err := syscall.Read(tun.fd, buf)
+	return buf, err
+}
+
+func (tun *LinuxTun) Write(buf []byte) (int, error) {
+	return syscall.Write(tun.fd, buf)
+}

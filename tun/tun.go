@@ -32,8 +32,8 @@ type Tun interface {
 	GetIPv4(typ int) (net.IP, error)
 	SetIPv4(typ int, ip net.IP) error
 
-	// Read([]byte) (int, error)
-	// Write([]byte) (int, error)
+	Read(int) ([]byte, error)
+	Write([]byte) (int, error)
 
 	// Create interface
 	Create(string) error
