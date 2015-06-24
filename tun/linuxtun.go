@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-06-23
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-06-23
+* @Last Modified time: 2015-06-24
  */
 
 package tun
@@ -52,10 +52,8 @@ func (tun *LinuxTun) Up() error {
 	return tun.SetFlags(flags | _IFF_UP)
 }
 
-func (tun *LinuxTun) Read(n int) ([]byte, error) {
-	buf := make([]byte, n)
-	n, err := syscall.Read(tun.fd, buf)
-	return buf, err
+func (tun *LinuxTun) Read(buf []byte) (int, error) {
+	return syscall.Read(tun.fd, buf)
 }
 
 func (tun *LinuxTun) Write(buf []byte) (int, error) {

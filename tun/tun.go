@@ -2,13 +2,14 @@
 * @Author: BlahGeek
 * @Date:   2015-06-23
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-06-23
+* @Last Modified time: 2015-06-24
  */
 
 package tun
 
 import "fmt"
 import "net"
+import "io"
 import "syscall"
 import "unsafe"
 import "runtime"
@@ -32,8 +33,8 @@ type Tun interface {
 	GetIPv4(typ int) (net.IP, error)
 	SetIPv4(typ int, ip net.IP) error
 
-	Read(int) ([]byte, error)
-	Write([]byte) (int, error)
+	io.Reader
+	io.Writer
 
 	// Create interface
 	Create(string) error

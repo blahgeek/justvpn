@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-06-23
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-06-23
+* @Last Modified time: 2015-06-24
  */
 
 package tun
@@ -89,12 +89,13 @@ func (tun *UTun) Create(name string) error {
 	return nil
 }
 
-func (tun *UTun) Read(n int) ([]byte, error) {
-	buf := make([]byte, 4+n)
-	if rdlen, err := syscall.Read(tun.fd, buf); err != nil {
-		return nil, err
+func (tun *UTun) Read(buf []byte) (int, error) {
+	newbuf := make([]byte, 4+len(buf))
+	if rdlen, err := syscall.Read(tun.fd, newbuf); err != nil {
+		return 0, err
 	} else {
-		return buf[4:rdlen], nil
+		copy(buf, newbuf[4:])
+		return rdlen - 4, nil
 	}
 }
 
