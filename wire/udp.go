@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-06-24
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-06-24
+* @Last Modified time: 2015-06-28
  */
 
 package wire
@@ -92,4 +92,6 @@ func (trans *UDPTransport) Write(buf []byte) (int, error) {
 	} else {
 		return trans.udp.Write(buf)
 	}
+
+	return 0, nil
 }

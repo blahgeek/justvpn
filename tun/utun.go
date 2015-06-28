@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-06-23
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-06-24
+* @Last Modified time: 2015-06-28
  */
 
 package tun
@@ -97,6 +97,7 @@ func (tun *UTun) Read(buf []byte) (int, error) {
 		copy(buf, newbuf[4:])
 		return rdlen - 4, nil
 	}
+	return 0, nil
 }
 
 func (tun *UTun) Write(buf []byte) (int, error) {
