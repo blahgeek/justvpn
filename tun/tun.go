@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-06-23
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-06-24
+* @Last Modified time: 2015-06-28
  */
 
 package tun
@@ -12,6 +12,9 @@ import "net"
 import "io"
 import "syscall"
 import "unsafe"
+import "strconv"
+import "log"
+import "strings"
 import "runtime"
 
 const (
@@ -169,8 +172,29 @@ func (tun *_BaseTun) Destroy() error {
 }
 
 // New TUN device
-func New(name string) (Tun, error) {
+func New() (Tun, error) {
 	var tun Tun
+	var name string
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return tun, nil
+	}
+
+	for i := 0; ; i += 1 {
+		name = "tun" + strconv.Itoa(i)
+		iface_exist := false
+		for _, iface := range ifaces {
+			if strings.Contains(iface.Name, name) {
+				iface_exist = true
+			}
+		}
+		if !iface_exist {
+			break
+		}
+	}
+
+	log.Printf("Allocating TUN interface: %v\n", name)
+
 	switch runtime.GOOS {
 	case "darwin":
 		tun = &UTun{}
@@ -179,6 +203,6 @@ func New(name string) (Tun, error) {
 	default:
 		return nil, fmt.Errorf("Tun not supported in %v", runtime.GOOS)
 	}
-	err := tun.Create(name)
+	err = tun.Create(name)
 	return tun, err
 }

@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-06-23
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-06-23
+* @Last Modified time: 2015-06-28
  */
 
 package tun
@@ -26,7 +26,7 @@ func _check_ifconfig(t *testing.T, name string, substring string) {
 }
 
 func TestTunParams(t *testing.T) {
-	tun, err := New("tun2")
+	tun, err := New()
 	if err != nil {
 		t.Fatalf("Error when creating tun: %v", err)
 	}
