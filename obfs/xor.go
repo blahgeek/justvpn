@@ -26,7 +26,7 @@ func (xor *XorObfusecator) Open(options map[string]interface{}) error {
 
 func (xor *XorObfusecator) Close() error { return nil }
 
-func (xor *XorObfusecator) GetLengthDelta() int { return 0 }
+func (xor *XorObfusecator) GetMaxOverhead() int { return 0 }
 
 func (xor *XorObfusecator) Encode(buf []byte) []byte {
 	ret := make([]byte, len(buf))

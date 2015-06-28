@@ -17,7 +17,7 @@ type Obfusecator interface {
 	Close() error
 
 	// len(obfsed data) - len(plain data)
-	GetLengthDelta() int
+	GetMaxOverhead() int
 
 	Encode([]byte) []byte
 	Decode([]byte) ([]byte, error)

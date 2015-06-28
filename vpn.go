@@ -77,7 +77,7 @@ func (vpn *VPN) initTunTransport(is_server bool, opt map[string]interface{}) err
 
 	vpn.tun_mtu = vpn.wire_mtu
 	for _, obfusecator := range vpn.obfusecators {
-		vpn.tun_mtu -= obfusecator.GetLengthDelta()
+		vpn.tun_mtu -= obfusecator.GetMaxOverhead()
 	}
 	log.Printf("MTU for TUN transport is %d\n", vpn.tun_mtu)
 	vpn.tun_trans.SetMTU(vpn.tun_mtu)
