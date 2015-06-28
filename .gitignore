@@ -6,7 +6,8 @@
 .LSOverride
 
 # Icon must end with two \r
-Icon
+Icon
+
 
 # Thumbnails
 ._*
@@ -54,3 +55,4 @@ _testmain.go
 *.test
 *.prof
 
+cmd/justvpn/justvpn
