@@ -11,15 +11,13 @@ import "net"
 import "fmt"
 import "log"
 
-const UDP_REMOTE_ADDR_TTL = 128
 const UDP_DEFAULT_MTU = 1450
 
 type UDPTransport struct {
-	udp             *net.UDPConn
-	remote_addr     *net.UDPAddr
-	remote_addr_ttl int
-	is_server       bool
-	mtu             int
+	udp         *net.UDPConn
+	remote_addr *net.UDPAddr
+	is_server   bool
+	mtu         int
 }
 
 func (trans *UDPTransport) MTU() int {
@@ -33,7 +31,7 @@ func (trans *UDPTransport) Open(is_server bool, options map[string]interface{}) 
 	if field := options["mtu"]; field == nil {
 		trans.mtu = UDP_DEFAULT_MTU
 	} else {
-		trans.mtu = field.(int)
+		trans.mtu = int(field.(float64))
 	}
 
 	trans.is_server = is_server
@@ -83,13 +81,9 @@ func (trans *UDPTransport) Read(buf []byte) (int, error) {
 		return 0, fmt.Errorf("UDP Transport not available")
 	}
 	rdlen, addr, err := trans.udp.ReadFromUDP(buf)
-	if trans.is_server && err == nil &&
-		(trans.remote_addr == nil || trans.remote_addr_ttl <= 0) {
-		log.Printf("UDP Server update remote address: %v", addr)
+	if trans.is_server && err == nil {
 		trans.remote_addr = addr
-		trans.remote_addr_ttl = UDP_REMOTE_ADDR_TTL
 	}
-	trans.remote_addr_ttl -= 1
 
 	return rdlen, err
 }
