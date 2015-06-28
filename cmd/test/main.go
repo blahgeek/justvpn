@@ -2,12 +2,13 @@
 * @Author: BlahGeek
 * @Date:   2015-06-23
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-06-24
+* @Last Modified time: 2015-06-28
  */
 
 package main
 
 import "os"
+import "os/signal"
 import "encoding/json"
 import "fmt"
 import "log"
@@ -16,26 +17,23 @@ import "github.com/blahgeek/justvpn/tun"
 import "github.com/blahgeek/justvpn/wire"
 import "github.com/blahgeek/justvpn"
 
-import "net/http"
-import _ "net/http/pprof"
+import "runtime/pprof"
 
 func main() {
+
+	f, err := os.Create(os.Args[1] + ".prof")
+	if err != nil {
+		log.Fatal(err)
+	}
+	pprof.StartCPUProfile(f)
+	defer pprof.StopCPUProfile()
 
 	is_server := false
 	if os.Args[1] == "server" {
 		is_server = true
 	}
 
-	go func() {
-		addr := "localhost:6060"
-		if is_server {
-			addr = "localhost:6061"
-		}
-		log.Println(http.ListenAndServe(addr, nil))
-	}()
-
 	var x tun.Tun
-	var err error
 	if is_server {
 		x, err = tun.New("tun2")
 	} else {
@@ -67,5 +65,11 @@ func main() {
 
 	justvpn.StartRoute(x, w)
 
-	select {}
+	signal_chan := make(chan os.Signal, 1)
+	signal.Notify(signal_chan, os.Interrupt)
+
+	select {
+	case <-signal_chan:
+		fmt.Println("CTRL-C Pressed")
+	}
 }
