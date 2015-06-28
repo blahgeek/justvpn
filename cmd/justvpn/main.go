@@ -14,12 +14,14 @@ import "encoding/json"
 import "fmt"
 import "log"
 import "flag"
+import "runtime/pprof"
 import "github.com/blahgeek/justvpn"
 
 func main() {
 
 	need_help := flag.Bool("h", false, "Show help")
 	is_server := flag.Bool("s", false, "Run as server")
+	cpuprofile := flag.String("cpuprofile", "", "Write cpu profile to file")
 	flag.Parse()
 	if *need_help {
 		fmt.Printf("Usage: %v [OPTIONS] config.json\n", os.Args[0])
@@ -28,6 +30,15 @@ func main() {
 	}
 	if *is_server {
 		log.Println("Running as server!")
+	}
+	if *cpuprofile != "" {
+		fmt.Printf("Saving CPU profile to %v", *cpuprofile)
+		if f, err := os.Create(*cpuprofile); err != nil {
+			log.Fatal(err)
+		} else {
+			pprof.StartCPUProfile(f)
+			defer pprof.StopCPUProfile()
+		}
 	}
 
 	if flag.NArg() == 0 {
