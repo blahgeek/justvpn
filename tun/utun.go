@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-06-23
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-06-24
+* @Last Modified time: 2015-06-28
  */
 
 package tun
@@ -90,12 +90,18 @@ func (tun *UTun) Create(name string) error {
 }
 
 func (tun *UTun) Read(buf []byte) (int, error) {
-	newbuf := make([]byte, 4+len(buf))
-	if rdlen, err := syscall.Read(tun.fd, newbuf); err != nil {
-		return 0, err
+	var header_buf [4]byte
+	var iovec [2]syscall.Iovec
+
+	iovec[0] = syscall.Iovec{&(header_buf[0]), 4}
+	iovec[1] = syscall.Iovec{&(buf[0]), uint64(len(buf))}
+
+	rdlen_raw, _, errno := syscall.Syscall(syscall.SYS_READV,
+		uintptr(tun.fd), uintptr(unsafe.Pointer(&(iovec[0]))), 2)
+	if errno == 0 {
+		return int(rdlen_raw) - 4, nil
 	} else {
-		copy(buf, newbuf[4:])
-		return rdlen - 4, nil
+		return 0, fmt.Errorf("Readv failed with code %d", errno)
 	}
 }
 
@@ -103,13 +109,24 @@ func (tun *UTun) Write(buf []byte) (int, error) {
 	if len(buf) == 0 {
 		return 0, nil
 	}
-	write_buf := make([]byte, 4+len(buf))
+
+	var header_buf [4]byte
 	if ip_version := buf[0] >> 4; ip_version == 6 {
-		binary.BigEndian.PutUint32(write_buf, syscall.AF_INET6)
+		binary.BigEndian.PutUint32(header_buf[:], syscall.AF_INET6)
 	} else {
-		binary.BigEndian.PutUint32(write_buf, syscall.AF_INET)
+		binary.BigEndian.PutUint32(header_buf[:], syscall.AF_INET)
 	}
-	copy(write_buf[4:], buf)
-	n, err := syscall.Write(tun.fd, write_buf)
-	return n - 4, err
+
+	var iovec [2]syscall.Iovec
+
+	iovec[0] = syscall.Iovec{&(header_buf[0]), 4}
+	iovec[1] = syscall.Iovec{&(buf[0]), uint64(len(buf))}
+
+	wrlen_raw, _, errno := syscall.Syscall(syscall.SYS_WRITEV,
+		uintptr(tun.fd), uintptr(unsafe.Pointer(&(iovec[0]))), 2)
+	if errno == 0 {
+		return int(wrlen_raw) - 4, nil
+	} else {
+		return 0, fmt.Errorf("Writev failed with code %d", errno)
+	}
 }
