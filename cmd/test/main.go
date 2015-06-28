@@ -35,9 +35,9 @@ func main() {
 
 	var x tun.Tun
 	if is_server {
-		x, err = tun.New("tun2")
+		x, err = tun.New("tun8")
 	} else {
-		x, err = tun.New("tun3")
+		x, err = tun.New("tun9")
 	}
 
 	if err != nil {
