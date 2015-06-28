@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-06-28
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-06-28
+* @Last Modified time: 2015-06-29
  */
 
 package obfs
@@ -16,11 +16,15 @@ type Obfusecator interface {
 	// Close obfs
 	Close() error
 
-	// len(obfsed data) - len(plain data)
+	// max of `len(obfsed data) - len(plain data)`
 	GetMaxOverhead() int
 
-	Encode([]byte) []byte
-	Decode([]byte) ([]byte, error)
+	// Encode src to dst, return length of dst
+	// len(dst) would be at least len(src) + GetMaxOverhead()
+	Encode(src, dst []byte) int
+	// Decode src to dst, return length of dst
+	// len(dst) would be at least len(src) - GetMaxOverhead()
+	Decode(src, dst []byte) (int, error)
 }
 
 func New(name string, options map[string]interface{}) (Obfusecator, error) {

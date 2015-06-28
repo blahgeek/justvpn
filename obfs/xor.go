@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-06-28
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-06-28
+* @Last Modified time: 2015-06-29
  */
 
 package obfs
@@ -28,16 +28,15 @@ func (xor *XorObfusecator) Close() error { return nil }
 
 func (xor *XorObfusecator) GetMaxOverhead() int { return 0 }
 
-func (xor *XorObfusecator) Encode(buf []byte) []byte {
-	ret := make([]byte, len(buf))
-	for i := 0; i < len(buf); i += 1 {
+func (xor *XorObfusecator) Encode(src, dst []byte) int {
+	for i := 0; i < len(src); i += 1 {
 		c := xor.key[i%len(xor.key)]
-		ret[i] = c ^ buf[i]
+		dst[i] = c ^ src[i]
 	}
-	return ret
+	return len(src)
 }
 
 // For xor, decoding is same as encoding, error is always nil
-func (xor *XorObfusecator) Decode(buf []byte) ([]byte, error) {
-	return xor.Encode(buf), nil
+func (xor *XorObfusecator) Decode(src, dst []byte) (int, error) {
+	return xor.Encode(src, dst), nil
 }

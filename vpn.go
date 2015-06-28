@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-06-24
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-06-28
+* @Last Modified time: 2015-06-29
  */
 
 package justvpn
@@ -27,6 +27,8 @@ type VPN struct {
 	tun_mtu   int
 
 	obfusecators []obfs.Obfusecator
+
+	max_packet_cap int
 }
 
 func (vpn *VPN) initObfusecators(option_list []interface{}) error {
@@ -99,15 +101,23 @@ func (vpn *VPN) Init(is_server bool, options map[string]interface{}) error {
 		return err
 	}
 
+	vpn.max_packet_cap = vpn.wire_mtu
+	for _, obfusecator := range vpn.obfusecators {
+		if overhead := obfusecator.GetMaxOverhead(); overhead > 0 {
+			vpn.max_packet_cap += overhead
+		}
+	}
+	log.Printf("Max packet capacity: %d\n", vpn.max_packet_cap)
+
 	log.Printf("VPN Init done: %v <-> %d obfs <-> %v\n",
 		vpn.wire_trans, len(vpn.obfusecators), vpn.tun_trans)
 
 	return nil
 }
 
-func readToChannel(reader io.Reader, mtu int, c chan<- []byte) {
+func (vpn *VPN) readToChannel(reader io.Reader, mtu int, c chan<- []byte) {
 	for {
-		buf := make([]byte, mtu)
+		buf := make([]byte, mtu, vpn.max_packet_cap)
 		if rdlen, err := reader.Read(buf); rdlen == 0 || err != nil {
 			log.Fatalf("Error reading from %v: %v", reader, err)
 			break
@@ -117,7 +127,7 @@ func readToChannel(reader io.Reader, mtu int, c chan<- []byte) {
 	}
 }
 
-func writeFromChannel(writer io.Writer, c <-chan []byte) {
+func (vpn *VPN) writeFromChannel(writer io.Writer, c <-chan []byte) {
 	for {
 		buf, ok := <-c
 		if !ok {
@@ -132,41 +142,42 @@ func writeFromChannel(writer io.Writer, c <-chan []byte) {
 }
 
 func (vpn *VPN) obfsEncode(plain_c <-chan []byte, obfsed_c chan<- []byte) {
+	buffer := make([]byte, 0, vpn.max_packet_cap)
 	for {
-		plain, ok := <-plain_c
+		data, ok := <-plain_c
 		if !ok {
 			log.Fatalf("Error reading from channel %v", plain_c)
 			break
 		}
-		obfsed := plain
 		for _, obfusecator := range vpn.obfusecators {
-			obfsed = obfusecator.Encode(plain)
-			plain = obfsed
+			dst := buffer[:cap(buffer)]
+			enclen := obfusecator.Encode(data, dst)
+			data, buffer = dst[:enclen], data
 		}
-		obfsed_c <- obfsed
+		obfsed_c <- data
 	}
 }
 
 func (vpn *VPN) obfsDecode(obfsed_c <-chan []byte, plain_c chan<- []byte) {
+	buffer := make([]byte, 0, vpn.max_packet_cap)
 OuterLoop:
 	for {
-		obfsed, ok := <-obfsed_c
+		data, ok := <-obfsed_c
 		if !ok {
 			log.Fatalf("Error reading from channel %v", obfsed_c)
 			break
 		}
-		plain := obfsed
 		// reverse
 		for i := len(vpn.obfusecators) - 1; i >= 0; i-- {
-			var err error
-			plain, err = vpn.obfusecators[i].Decode(obfsed)
-			if err != nil {
+			dst := buffer[:cap(buffer)]
+			if declen, err := vpn.obfusecators[i].Decode(data, dst); err != nil {
 				log.Printf("Error while decoding by %v, drop\n", vpn.obfusecators[i])
 				continue OuterLoop
+			} else {
+				data, buffer = dst[:declen], data
 			}
-			obfsed = plain
 		}
-		plain_c <- plain
+		plain_c <- data
 	}
 }
 
@@ -176,10 +187,10 @@ func (vpn *VPN) Start() {
 	vpn.from_wire = make(chan []byte, VPN_CHANNEL_BUFFER)
 	vpn.to_wire = make(chan []byte, VPN_CHANNEL_BUFFER)
 
-	go readToChannel(vpn.tun_trans, vpn.tun_mtu, vpn.from_tun)
-	go readToChannel(vpn.wire_trans, vpn.wire_mtu, vpn.from_wire)
-	go writeFromChannel(vpn.tun_trans, vpn.to_tun)
-	go writeFromChannel(vpn.wire_trans, vpn.to_wire)
+	go vpn.readToChannel(vpn.tun_trans, vpn.tun_mtu, vpn.from_tun)
+	go vpn.readToChannel(vpn.wire_trans, vpn.wire_mtu, vpn.from_wire)
+	go vpn.writeFromChannel(vpn.tun_trans, vpn.to_tun)
+	go vpn.writeFromChannel(vpn.wire_trans, vpn.to_wire)
 
 	go vpn.obfsEncode(vpn.from_tun, vpn.to_wire)
 	go vpn.obfsDecode(vpn.from_wire, vpn.to_tun)
