@@ -1,0 +1,115 @@
+/*
+* @Author: BlahGeek
+* @Date:   2015-07-02
+* @Last Modified by:   BlahGeek
+* @Last Modified time: 2015-07-02
+ */
+
+package wire
+
+import "log"
+import "fmt"
+import "crypto/tls"
+import "encoding/base64"
+import "github.com/mattn/go-xmpp"
+
+type XMPPTransport struct {
+	client    *xmpp.Client
+	remote_id string
+	encoder   *base64.Encoding
+}
+
+func (x *XMPPTransport) Open(is_server bool, options map[string]interface{}) error {
+	xmpp.DefaultConfig = tls.Config{
+		InsecureSkipVerify: true,
+	}
+	x.encoder = base64.StdEncoding
+
+	host := "talk.renren.com:5222"
+	if opt_host := options["host"]; opt_host != nil {
+		host = opt_host.(string)
+	}
+
+	var err error
+	fetch_opt := func(server bool, field string) string {
+		if err != nil {
+			return ""
+		}
+		var key string
+		if server {
+			key = "server_" + field
+		} else {
+			key = "client_" + field
+		}
+		if field := options[key]; field != nil {
+			return field.(string)
+		}
+		err = fmt.Errorf("`%s` not found in options", key)
+		return ""
+	}
+
+	username := fetch_opt(is_server, "username")
+	passwd := fetch_opt(is_server, "password")
+	x.remote_id = fetch_opt(!is_server, "username")
+
+	if err != nil {
+		return err
+	}
+
+	xmpp_opts := xmpp.Options{
+		Host:     host,
+		User:     username,
+		Password: passwd,
+		NoTLS:    true,
+		Debug:    true,
+	}
+	log.Printf("XMPP: Connecting to %s as %s, remote is %s\n",
+		host, username, x.remote_id)
+	x.client, err = xmpp_opts.NewClient()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (x *XMPPTransport) MTU() int {
+	return 1000 // FIXME
+}
+
+func (x *XMPPTransport) Close() error {
+	return x.client.Close()
+}
+
+func (x *XMPPTransport) Write(buf []byte) (int, error) {
+	str := x.encoder.EncodeToString(buf)
+	msg := xmpp.Chat{
+		Remote: x.remote_id,
+		Type:   "chat",
+		Text:   str,
+	}
+	_, err := x.client.Send(msg)
+	return len(buf), err
+}
+
+func (x *XMPPTransport) Read(buf []byte) (int, error) {
+	for {
+		var msg interface{}
+		var err error
+		msg, err = x.client.Recv()
+		switch chat := msg.(type) {
+		case xmpp.Chat:
+			if chat.Remote != x.remote_id {
+				continue
+			}
+			var dec_buf []byte
+			dec_buf, err = x.encoder.DecodeString(chat.Text)
+			if err != nil {
+				return 0, err
+			}
+			return copy(buf, dec_buf), nil
+		default:
+		}
+	}
+	return 0, nil
+}

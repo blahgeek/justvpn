@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-06-24
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-06-28
+* @Last Modified time: 2015-07-02
  */
 
 package wire
@@ -25,15 +25,18 @@ type Transport interface {
 
 func New(name string, is_server bool, options map[string]interface{}) (Transport, error) {
 	var ret Transport
-	err := fmt.Errorf("No wire transport found: %v", name)
 
 	switch name {
 	case "udp":
-		log.Printf("New wire transport: UDPTransport")
+		log.Println("New wire transport: UDPTransport")
 		ret = &UDPTransport{}
-		err = ret.Open(is_server, options)
+	case "xmpp":
+		log.Println("New wire transport: XMPPTransport")
+		ret = &XMPPTransport{}
 	default:
+		return ret, fmt.Errorf("No wire transport found: %v", name)
 	}
 
+	err := ret.Open(is_server, options)
 	return ret, err
 }
