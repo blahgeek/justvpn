@@ -9,6 +9,7 @@ package wire
 
 import "log"
 import "fmt"
+import "strings"
 import "crypto/tls"
 import "encoding/base64"
 import "github.com/mattn/go-xmpp"
@@ -61,7 +62,7 @@ func (x *XMPPTransport) Open(is_server bool, options map[string]interface{}) err
 		User:     username,
 		Password: passwd,
 		NoTLS:    true,
-		Debug:    true,
+		Debug:    false,
 	}
 	log.Printf("XMPP: Connecting to %s as %s, remote is %s\n",
 		host, username, x.remote_id)
@@ -102,10 +103,16 @@ func (x *XMPPTransport) Read(buf []byte) (int, error) {
 			if chat.Remote != x.remote_id {
 				continue
 			}
+			if chat.Type == "chat_retry" {
+				continue // FIXME
+			}
 			var dec_buf []byte
 			dec_buf, err = x.encoder.DecodeString(chat.Text)
 			if err != nil {
-				return 0, err
+				if strings.Contains(chat.Text, "过于频繁") {
+					log.Printf("XMPP server complains about too much messages\n")
+				}
+				continue
 			}
 			return copy(buf, dec_buf), nil
 		default:
