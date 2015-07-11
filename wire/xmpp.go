@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-07-02
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-07-02
+* @Last Modified time: 2015-07-03
  */
 
 package wire
@@ -101,10 +101,15 @@ func (x *XMPPTransport) Read(buf []byte) (int, error) {
 		switch chat := msg.(type) {
 		case xmpp.Chat:
 			if chat.Remote != x.remote_id {
+				log.Printf("XMPP: Remote ID does not match: %v\n", chat.Remote)
 				continue
 			}
 			if chat.Type == "chat_retry" {
 				continue // FIXME
+			}
+			if len(chat.Text) == 0 {
+				log.Println("XMPP: Empty text")
+				continue
 			}
 			var dec_buf []byte
 			dec_buf, err = x.encoder.DecodeString(chat.Text)
@@ -112,6 +117,7 @@ func (x *XMPPTransport) Read(buf []byte) (int, error) {
 				if strings.Contains(chat.Text, "过于频繁") {
 					log.Printf("XMPP server complains about too much messages\n")
 				}
+				log.Printf("XMPP: Unable to decode: %v\n", chat.Text)
 				continue
 			}
 			return copy(buf, dec_buf), nil
