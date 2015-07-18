@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-06-28
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-06-29
+* @Last Modified time: 2015-07-18
  */
 
 package obfs
@@ -12,12 +12,12 @@ import "fmt"
 
 type Obfusecator interface {
 	// Open obfs, with options (json object)
-	Open(options map[string]interface{}) error
+	Open(options map[string]interface{}, max_obfsed_len int) error
 	// Close obfs
 	Close() error
 
-	// max of `len(obfsed data) - len(plain data)`
-	GetMaxOverhead() int
+	// Return max length of plain data (given max_obfsed_len input data)
+	GetMaxPlainLength() int
 
 	// Encode src to dst, return length of dst
 	// len(dst) would be at least len(src) + GetMaxOverhead()
@@ -27,7 +27,7 @@ type Obfusecator interface {
 	Decode(src, dst []byte) (int, error)
 }
 
-func New(name string, options map[string]interface{}) (Obfusecator, error) {
+func New(name string, options map[string]interface{}, max_obfsed_len int) (Obfusecator, error) {
 	var ret Obfusecator
 	err := fmt.Errorf("No obfusecator found: %v", name)
 
@@ -35,7 +35,7 @@ func New(name string, options map[string]interface{}) (Obfusecator, error) {
 	case "xor":
 		log.Printf("New obfusecator: %v", name)
 		ret = &XorObfusecator{}
-		err = ret.Open(options)
+		err = ret.Open(options, max_obfsed_len)
 	default:
 	}
 

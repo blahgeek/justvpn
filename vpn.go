@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-06-24
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-06-29
+* @Last Modified time: 2015-07-18
  */
 
 package justvpn
@@ -33,15 +33,19 @@ type VPN struct {
 
 func (vpn *VPN) initObfusecators(option_list []interface{}) error {
 	vpn.obfusecators = make([]obfs.Obfusecator, len(option_list))
+	vpn.tun_mtu = vpn.wire_mtu
 	for index, opt_raw := range option_list {
 		opt := opt_raw.(map[string]interface{})
 		name := opt["name"].(string)
 		options := opt["options"].(map[string]interface{})
 		var err error
-		vpn.obfusecators[index], err = obfs.New(name, options)
+		vpn.obfusecators[index], err = obfs.New(name, options, vpn.tun_mtu)
 		if err != nil {
 			return fmt.Errorf("Error while allocating obfusecator %v: %v", name, err)
 		}
+		obfs_max_plain_len := vpn.obfusecators[index].GetMaxPlainLength()
+		log.Printf("Obfs %s: MTU %d->%d\n", name, vpn.tun_mtu, obfs_max_plain_len)
+		vpn.tun_mtu = obfs_max_plain_len
 	}
 	return nil
 }
@@ -70,17 +74,15 @@ func (vpn *VPN) initTunTransport(is_server bool, opt map[string]interface{}) err
 	tun_server_addr := net.ParseIP(opt["server"].(string))
 	tun_client_addr := net.ParseIP(opt["client"].(string))
 	if is_server {
+		log.Printf("Setting TUN IP: %v -> %v\n", tun_server_addr, tun_client_addr)
 		vpn.tun_trans.SetIPv4(tun.ADDRESS, tun_server_addr)
 		vpn.tun_trans.SetIPv4(tun.DST_ADDRESS, tun_client_addr)
 	} else {
+		log.Printf("Setting TUN IP: %v -> %v\n", tun_client_addr, tun_server_addr)
 		vpn.tun_trans.SetIPv4(tun.ADDRESS, tun_client_addr)
 		vpn.tun_trans.SetIPv4(tun.DST_ADDRESS, tun_server_addr)
 	}
 
-	vpn.tun_mtu = vpn.wire_mtu
-	for _, obfusecator := range vpn.obfusecators {
-		vpn.tun_mtu -= obfusecator.GetMaxOverhead()
-	}
 	log.Printf("MTU for TUN transport is %d\n", vpn.tun_mtu)
 	vpn.tun_trans.SetMTU(vpn.tun_mtu)
 
@@ -88,12 +90,12 @@ func (vpn *VPN) initTunTransport(is_server bool, opt map[string]interface{}) err
 }
 
 func (vpn *VPN) Init(is_server bool, options map[string]interface{}) error {
-	obfs_list := options["obfs"].([]interface{})
-	if err := vpn.initObfusecators(obfs_list); err != nil {
-		return err
-	}
 	wire_opt := options["wire"].(map[string]interface{})
 	if err := vpn.initWireTransport(is_server, wire_opt); err != nil {
+		return err
+	}
+	obfs_list := options["obfs"].([]interface{})
+	if err := vpn.initObfusecators(obfs_list); err != nil {
 		return err
 	}
 	tun_opt := options["tunnel"].(map[string]interface{})
@@ -102,9 +104,12 @@ func (vpn *VPN) Init(is_server bool, options map[string]interface{}) error {
 	}
 
 	vpn.max_packet_cap = vpn.wire_mtu
+	if vpn.tun_mtu > vpn.wire_mtu {
+		vpn.max_packet_cap = vpn.tun_mtu
+	}
 	for _, obfusecator := range vpn.obfusecators {
-		if overhead := obfusecator.GetMaxOverhead(); overhead > 0 {
-			vpn.max_packet_cap += overhead
+		if max_packet := obfusecator.GetMaxPlainLength(); max_packet > vpn.max_packet_cap {
+			vpn.max_packet_cap = max_packet
 		}
 	}
 	log.Printf("Max packet capacity: %d\n", vpn.max_packet_cap)
