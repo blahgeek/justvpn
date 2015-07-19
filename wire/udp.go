@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-06-24
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-06-29
+* @Last Modified time: 2015-07-18
  */
 
 package wire
@@ -64,9 +64,23 @@ func (trans *UDPTransport) Open(is_server bool, options map[string]interface{}) 
 		if err != nil {
 			return fmt.Errorf("Error dialing UDP: %v", err)
 		}
+		trans.remote_addr = server_addr
 	}
 
 	return nil
+}
+
+func (trans *UDPTransport) GetGateways() []net.IPNet {
+	if trans.is_server {
+		return make([]net.IPNet, 0)
+	} else {
+		return []net.IPNet{
+			net.IPNet{
+				trans.remote_addr.IP,
+				net.IPv4Mask(255, 255, 255, 255),
+			},
+		}
+	}
 }
 
 func (trans *UDPTransport) Close() error {

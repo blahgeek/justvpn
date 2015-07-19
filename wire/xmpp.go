@@ -2,12 +2,13 @@
 * @Author: BlahGeek
 * @Date:   2015-07-02
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-07-03
+* @Last Modified time: 2015-07-18
  */
 
 package wire
 
 import "log"
+import "net"
 import "fmt"
 import "strings"
 import "crypto/tls"
@@ -76,6 +77,10 @@ func (x *XMPPTransport) Open(is_server bool, options map[string]interface{}) err
 
 func (x *XMPPTransport) MTU() int {
 	return 1000 // FIXME
+}
+
+func (x *XMPPTransport) GetGateways() []net.IPNet {
+	return []net.IPNet{} // FIXME
 }
 
 func (x *XMPPTransport) Close() error {

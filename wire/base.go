@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-06-24
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-07-02
+* @Last Modified time: 2015-07-18
  */
 
 package wire
@@ -10,6 +10,7 @@ package wire
 import "io"
 import "log"
 import "fmt"
+import "net"
 
 type Transport interface {
 	// For both server and client side
@@ -18,6 +19,9 @@ type Transport interface {
 
 	// Max packet size the transport can write
 	MTU() int
+
+	// Return IP Networks that should be routed via non-vpn gateway
+	GetGateways() []net.IPNet
 
 	io.Reader
 	io.Writer
