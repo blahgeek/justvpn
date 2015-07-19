@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-07-18
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-07-18
+* @Last Modified time: 2015-07-19
  */
 
 package tun
@@ -12,6 +12,8 @@ import "fmt"
 import "log"
 import "os/exec"
 import "net"
+import "regexp"
+import "strings"
 
 const APPLY_ROUTER_CONCURRENT = 25
 
@@ -41,6 +43,45 @@ func generateCMD(dst net.IPNet, gw net.IP, is_delete bool) []string {
 	}
 
 	return nil
+}
+
+func GetWireDefaultGateway() (net.IP, error) {
+	var regex *regexp.Regexp
+	var command *exec.Cmd
+
+	switch runtime.GOOS {
+	case "darwin":
+		command = exec.Command("netstat", "-rn", "-f", "inet")
+		regex = regexp.MustCompile(`default\s+(\d+\.\d+\.\d+\.\d+)\s+.*`)
+	case "linux":
+		command = exec.Command("ip", "-4", "route", "show")
+		regex = regexp.MustCompile(`default\s+via\s+(\d+\.\d+\.\d+\.\d+)\s+.*`)
+	default:
+		return nil, fmt.Errorf("Getting gateway is not supported in %v", runtime.GOOS)
+	}
+
+	output, err := command.Output()
+	if err != nil {
+		return nil, err
+	}
+	if result := regex.FindSubmatch(output); result == nil {
+		return nil, fmt.Errorf("Unable to get default gateway")
+	} else {
+		return net.ParseIP(string(result[1])), nil
+	}
+}
+
+func ApplyInterfaceRouter(tun Tun) error {
+	// For OSX: run `route add -host ... -interface tunX`
+	if runtime.GOOS != "darwin" {
+		return nil
+	}
+	vpn_dst_addr, _ := tun.GetIPv4(DST_ADDRESS)
+	cmd := exec.Command("route", "add", "-host", vpn_dst_addr.String(),
+		"-interface", tun.Name())
+	log.Printf("Applying interface router: %s %s\n",
+		cmd.Path, strings.Join(cmd.Args, " "))
+	return cmd.Run()
 }
 
 func ApplyRouter(wire_rules, vpn_rules []net.IPNet,

@@ -8,6 +8,7 @@
 package tun
 
 import "net"
+import "log"
 import "runtime"
 import "strings"
 import "testing"
@@ -41,4 +42,12 @@ func TestRouteTableCMD(t *testing.T) {
 		assert_cmd(cmds[1], "ip route add 0.0.0.0/0 via 166.111.8.1")
 		assert_cmd(cmds[2], "ip route add 10.0.0.0/32 via 166.111.8.1")
 	}
+}
+
+func TestDefaultGateway(t *testing.T) {
+	ip, err := GetWireDefaultGateway()
+	if err != nil {
+		t.Error(err)
+	}
+	log.Printf("Default gateway: %s\n", ip.String())
 }

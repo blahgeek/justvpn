@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-06-24
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-07-18
+* @Last Modified time: 2015-07-19
  */
 
 package justvpn
@@ -86,7 +86,7 @@ func (vpn *VPN) initTunTransport(is_server bool, opt map[string]interface{}) err
 	log.Printf("MTU for TUN transport is %d\n", vpn.tun_mtu)
 	vpn.tun_trans.SetMTU(vpn.tun_mtu)
 
-	return nil
+	return tun.ApplyInterfaceRouter(vpn.tun_trans)
 }
 
 func (vpn *VPN) Init(is_server bool, options map[string]interface{}) error {
@@ -113,6 +113,18 @@ func (vpn *VPN) Init(is_server bool, options map[string]interface{}) error {
 		}
 	}
 	log.Printf("Max packet capacity: %d\n", vpn.max_packet_cap)
+
+	// Setup routers
+	wire_gw, err := tun.GetWireDefaultGateway()
+	if err != nil {
+		return err
+	}
+	log.Printf("Default gateway: %s\n", wire_gw.String())
+	err = tun.ApplyRouter(vpn.wire_trans.GetGateways(), nil,
+		wire_gw, net.IP{}, false)
+	if err != nil {
+		return err
+	}
 
 	log.Printf("VPN Init done: %v <-> %d obfs <-> %v\n",
 		vpn.wire_trans, len(vpn.obfusecators), vpn.tun_trans)

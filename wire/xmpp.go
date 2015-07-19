@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-07-02
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-07-18
+* @Last Modified time: 2015-07-19
  */
 
 package wire
@@ -15,10 +15,13 @@ import "crypto/tls"
 import "encoding/base64"
 import "github.com/mattn/go-xmpp"
 
+const XMPP_DEFAULT_MTU = 1000
+
 type XMPPTransport struct {
 	client    *xmpp.Client
 	remote_id string
 	encoder   *base64.Encoding
+	mtu       int
 }
 
 func (x *XMPPTransport) Open(is_server bool, options map[string]interface{}) error {
@@ -26,6 +29,12 @@ func (x *XMPPTransport) Open(is_server bool, options map[string]interface{}) err
 		InsecureSkipVerify: true,
 	}
 	x.encoder = base64.StdEncoding
+
+	if field := options["mtu"]; field == nil {
+		x.mtu = XMPP_DEFAULT_MTU
+	} else {
+		x.mtu = int(field.(float64))
+	}
 
 	host := "talk.renren.com:5222"
 	if opt_host := options["host"]; opt_host != nil {
@@ -76,7 +85,7 @@ func (x *XMPPTransport) Open(is_server bool, options map[string]interface{}) err
 }
 
 func (x *XMPPTransport) MTU() int {
-	return 1000 // FIXME
+	return x.mtu
 }
 
 func (x *XMPPTransport) GetGateways() []net.IPNet {
