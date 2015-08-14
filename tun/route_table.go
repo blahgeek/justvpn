@@ -109,11 +109,11 @@ func ApplyRouter(wire_rules, vpn_rules []net.IPNet,
 				continue
 			}
 			running_count += 1
-			go func() {
+			go func(rule []string) {
 				log.WithField("cmd", strings.Join(rule, " ")).
 					Debug("Applying router")
 				waiter <- exec.Command(rule[0], rule[1:]...).Run()
-			}()
+			}(rule)
 		}
 
 		for j := 0; j < running_count; j += 1 {

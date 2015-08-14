@@ -23,7 +23,7 @@ type UDPTransport struct {
 }
 
 func (trans *UDPTransport) String() string {
-    return fmt.Sprintf("UDP[%v]", trans.remote_addr)
+	return fmt.Sprintf("UDP[%v]", trans.remote_addr)
 }
 
 func (trans *UDPTransport) MTU() int {
@@ -81,7 +81,7 @@ func (trans *UDPTransport) Open(is_server bool, options map[string]interface{}) 
 	return nil
 }
 
-func (trans *UDPTransport) GetGateways() []net.IPNet {
+func (trans *UDPTransport) GetWireNetworks() []net.IPNet {
 	if trans.is_server {
 		return make([]net.IPNet, 0)
 	} else {

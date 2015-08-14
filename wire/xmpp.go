@@ -27,7 +27,7 @@ type XMPPTransport struct {
 }
 
 func (x *XMPPTransport) String() string {
-    return fmt.Sprintf("XMPP[%v]", x.remote_id)
+	return fmt.Sprintf("XMPP[%v]", x.remote_id)
 }
 
 func (x *XMPPTransport) Open(is_server bool, options map[string]interface{}) error {
@@ -98,7 +98,7 @@ func (x *XMPPTransport) MTU() int {
 	return x.mtu
 }
 
-func (x *XMPPTransport) GetGateways() []net.IPNet {
+func (x *XMPPTransport) GetWireNetworks() []net.IPNet {
 	return []net.IPNet{} // FIXME
 }
 

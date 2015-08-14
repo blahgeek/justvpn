@@ -32,15 +32,14 @@ type VPN struct {
 	max_packet_cap int
 
 	is_server bool
-	wire_opts []interface{}
-	obfs_opts []interface{}
-	tun_opt   map[string]interface{}
+	options   map[string]interface{}
 }
 
 func (vpn *VPN) initObfusecators() error {
-	vpn.obfusecators = make([]obfs.Obfusecator, len(vpn.obfs_opts))
+	obfs_opts := vpn.options["obfs"].([]interface{})
+	vpn.obfusecators = make([]obfs.Obfusecator, len(obfs_opts))
 	vpn.tun_mtu = vpn.wire_min_mtu
-	for index, opt_raw := range vpn.obfs_opts {
+	for index, opt_raw := range obfs_opts {
 		opt := opt_raw.(map[string]interface{})
 		name := opt["name"].(string)
 		options := opt["options"].(map[string]interface{})
@@ -54,16 +53,17 @@ func (vpn *VPN) initObfusecators() error {
 			"name": name,
 			"old":  vpn.tun_mtu,
 			"new":  obfs_max_plain_len,
-		}).Info("Updating MTU for obfusecator")
+		}).Debug("Updating MTU for obfusecator")
 		vpn.tun_mtu = obfs_max_plain_len
 	}
 	return nil
 }
 
 func (vpn *VPN) initWireTransport() error {
-	vpn.wire_transports = make([]wire.Transport, len(vpn.wire_opts))
+	wire_opts := vpn.options["wires"].([]interface{})
+	vpn.wire_transports = make([]wire.Transport, len(wire_opts))
 	vpn.wire_min_mtu = -1
-	for index, opt_raw := range vpn.wire_opts {
+	for index, opt_raw := range wire_opts {
 		opt := opt_raw.(map[string]interface{})
 		name := opt["name"].(string)
 		options := opt["options"].(map[string]interface{})
@@ -82,14 +82,15 @@ func (vpn *VPN) initWireTransport() error {
 }
 
 func (vpn *VPN) initTunTransport() error {
+	tun_opt := vpn.options["tunnel"].(map[string]interface{})
 	var err error
 	vpn.tun_trans, err = tun.New()
 	if err != nil {
 		return err
 	}
 
-	tun_server_addr := net.ParseIP(vpn.tun_opt["server"].(string))
-	tun_client_addr := net.ParseIP(vpn.tun_opt["client"].(string))
+	tun_server_addr := net.ParseIP(tun_opt["server"].(string))
+	tun_client_addr := net.ParseIP(tun_opt["client"].(string))
 	if vpn.is_server {
 		log.WithFields(log.Fields{
 			"local":  tun_server_addr,
@@ -113,23 +114,55 @@ func (vpn *VPN) initTunTransport() error {
 }
 
 func (vpn *VPN) initRouter() error {
-	wire_gw, err := tun.GetWireDefaultGateway()
+	var err error
+	var wire_gw, vpn_gw net.IP
+
+	wire_gw, err = tun.GetWireDefaultGateway()
 	if err != nil {
 		return err
 	}
-	log.WithField("gateway", wire_gw.String()).Info("Default gateway detected")
-	var wire_gateways []net.IPNet
-	for _, wire_trans := range vpn.wire_transports {
-		wire_gateways = append(wire_gateways, wire_trans.GetGateways()...)
+	vpn_gw, err = vpn.tun_trans.GetIPv4(tun.DST_ADDRESS)
+	if err != nil {
+		return err
 	}
-	return tun.ApplyRouter(wire_gateways, nil, wire_gw, net.IP{}, false)
+	log.WithFields(log.Fields{
+		"wire_gw": wire_gw,
+		"vpn_gw":  vpn_gw,
+	}).Info("Default gateway for non-VPN and VPN traffic")
+
+	var wire_rules, vpn_rules []net.IPNet
+
+	for _, wire_trans := range vpn.wire_transports {
+		nets := wire_trans.GetWireNetworks()
+		log.WithFields(log.Fields{
+			"wire":     wire_trans,
+			"networks": nets,
+		}).Debug("Setting router for wire transport")
+		wire_rules = append(wire_rules, nets...)
+	}
+
+	route_opt := vpn.options["route"].(map[string]interface{})
+	if wire_rule_opt := route_opt["wire"]; wire_rule_opt != nil {
+		for _, rule := range wire_rule_opt.([]interface{}) {
+			if _, rule_net, rule_err := net.ParseCIDR(rule.(string)); rule_err == nil {
+				wire_rules = append(wire_rules, *rule_net)
+			}
+		}
+	}
+	if vpn_rule_opt := route_opt["vpn"]; vpn_rule_opt != nil {
+		for _, rule := range vpn_rule_opt.([]interface{}) {
+			if _, rule_net, rule_err := net.ParseCIDR(rule.(string)); rule_err == nil {
+				vpn_rules = append(vpn_rules, *rule_net)
+			}
+		}
+	}
+
+	return tun.ApplyRouter(wire_rules, vpn_rules, wire_gw, vpn_gw, false)
 }
 
 func (vpn *VPN) Init(is_server bool, options map[string]interface{}) error {
 	vpn.is_server = is_server
-	vpn.wire_opts = options["wires"].([]interface{})
-	vpn.obfs_opts = options["obfs"].([]interface{})
-	vpn.tun_opt = options["tunnel"].(map[string]interface{})
+	vpn.options = options
 
 	if err := vpn.initWireTransport(); err != nil {
 		return err
@@ -140,8 +173,10 @@ func (vpn *VPN) Init(is_server bool, options map[string]interface{}) error {
 	if err := vpn.initTunTransport(); err != nil {
 		return err
 	}
-	if err := vpn.initRouter(); err != nil {
-		return err
+	if !is_server {
+		if err := vpn.initRouter(); err != nil {
+			return err
+		}
 	}
 
 	vpn.max_packet_cap = vpn.wire_min_mtu

@@ -21,9 +21,9 @@ type Transport interface {
 	MTU() int
 
 	// Return IP Networks that should be routed via non-vpn gateway
-	GetGateways() []net.IPNet
+	GetWireNetworks() []net.IPNet
 
-    String() string
+	String() string
 
 	io.Reader
 	io.Writer
