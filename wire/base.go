@@ -9,12 +9,13 @@ package wire
 
 import "io"
 import log "github.com/Sirupsen/logrus"
+import "encoding/json"
 import "fmt"
 import "net"
 
 type Transport interface {
 	// For both server and client side
-	Open(is_server bool, options map[string]interface{}) error
+	Open(is_server bool, options json.RawMessage) error
 	Close() error
 
 	// Max packet size the transport can write
@@ -29,7 +30,7 @@ type Transport interface {
 	io.Writer
 }
 
-func New(name string, is_server bool, options map[string]interface{}) (Transport, error) {
+func New(name string, is_server bool, options json.RawMessage) (Transport, error) {
 	var ret Transport
 	log.WithField("name", name).Info("Allocating new wire transport")
 

@@ -13,10 +13,30 @@ import "net"
 import "github.com/blahgeek/justvpn/tun"
 import "github.com/blahgeek/justvpn/wire"
 import "github.com/blahgeek/justvpn/obfs"
+import "encoding/json"
 import log "github.com/Sirupsen/logrus"
 
 const VPN_CHANNEL_BUFFER = 64
 const VPN_ERROR_COUNT_THRESHOLD = 32
+
+type VPNOptions struct {
+	Tunnel struct {
+		Server string `json:"server"`
+		Client string `json:"client"`
+	} `json:"tunnel"`
+	Wires []struct {
+		Name    string          `json:"name"`
+		Options json.RawMessage `json:"options"`
+	} `json:"wires"`
+	Obfs []struct {
+		Name    string          `json:"name"`
+		Options json.RawMessage `json:"options"`
+	} `json:"obfs"`
+	Route struct {
+		Wire []string `json:"wire"`
+		VPN  []string `json:"vpn"`
+	} `json:"route"`
+}
 
 type VPN struct {
 	from_tun, to_tun, from_wire, to_wire chan []byte
@@ -32,25 +52,21 @@ type VPN struct {
 	max_packet_cap int
 
 	is_server bool
-	options   map[string]interface{}
+	options   VPNOptions
 }
 
 func (vpn *VPN) initObfusecators() error {
-	obfs_opts := vpn.options["obfs"].([]interface{})
-	vpn.obfusecators = make([]obfs.Obfusecator, len(obfs_opts))
+	vpn.obfusecators = make([]obfs.Obfusecator, len(vpn.options.Obfs))
 	vpn.tun_mtu = vpn.wire_min_mtu
-	for index, opt_raw := range obfs_opts {
-		opt := opt_raw.(map[string]interface{})
-		name := opt["name"].(string)
-		options := opt["options"].(map[string]interface{})
+	for index, item := range vpn.options.Obfs {
 		var err error
-		vpn.obfusecators[index], err = obfs.New(name, options, vpn.tun_mtu)
+		vpn.obfusecators[index], err = obfs.New(item.Name, item.Options, vpn.tun_mtu)
 		if err != nil {
-			return fmt.Errorf("Error while allocating obfusecator %v: %v", name, err)
+			return fmt.Errorf("Error while allocating obfusecator %v: %v", item.Name, err)
 		}
 		obfs_max_plain_len := vpn.obfusecators[index].GetMaxPlainLength()
 		log.WithFields(log.Fields{
-			"name": name,
+			"name": item.Name,
 			"old":  vpn.tun_mtu,
 			"new":  obfs_max_plain_len,
 		}).Debug("Updating MTU for obfusecator")
@@ -60,15 +76,11 @@ func (vpn *VPN) initObfusecators() error {
 }
 
 func (vpn *VPN) initWireTransport() error {
-	wire_opts := vpn.options["wires"].([]interface{})
-	vpn.wire_transports = make([]wire.Transport, len(wire_opts))
+	vpn.wire_transports = make([]wire.Transport, len(vpn.options.Wires))
 	vpn.wire_min_mtu = -1
-	for index, opt_raw := range wire_opts {
-		opt := opt_raw.(map[string]interface{})
-		name := opt["name"].(string)
-		options := opt["options"].(map[string]interface{})
+	for index, item := range vpn.options.Wires {
 		var err error
-		vpn.wire_transports[index], err = wire.New(name, vpn.is_server, options)
+		vpn.wire_transports[index], err = wire.New(item.Name, vpn.is_server, item.Options)
 		if err != nil {
 			return err
 		}
@@ -82,15 +94,14 @@ func (vpn *VPN) initWireTransport() error {
 }
 
 func (vpn *VPN) initTunTransport() error {
-	tun_opt := vpn.options["tunnel"].(map[string]interface{})
 	var err error
 	vpn.tun_trans, err = tun.New()
 	if err != nil {
 		return err
 	}
 
-	tun_server_addr := net.ParseIP(tun_opt["server"].(string))
-	tun_client_addr := net.ParseIP(tun_opt["client"].(string))
+	tun_server_addr := net.ParseIP(vpn.options.Tunnel.Server)
+	tun_client_addr := net.ParseIP(vpn.options.Tunnel.Client)
 	if vpn.is_server {
 		log.WithFields(log.Fields{
 			"local":  tun_server_addr,
@@ -141,28 +152,25 @@ func (vpn *VPN) initRouter() error {
 		wire_rules = append(wire_rules, nets...)
 	}
 
-	route_opt := vpn.options["route"].(map[string]interface{})
-	if wire_rule_opt := route_opt["wire"]; wire_rule_opt != nil {
-		for _, rule := range wire_rule_opt.([]interface{}) {
-			if _, rule_net, rule_err := net.ParseCIDR(rule.(string)); rule_err == nil {
-				wire_rules = append(wire_rules, *rule_net)
-			}
+	for _, rule := range vpn.options.Route.Wire {
+		if _, rule_net, rule_err := net.ParseCIDR(rule); rule_err == nil {
+			wire_rules = append(wire_rules, *rule_net)
 		}
 	}
-	if vpn_rule_opt := route_opt["vpn"]; vpn_rule_opt != nil {
-		for _, rule := range vpn_rule_opt.([]interface{}) {
-			if _, rule_net, rule_err := net.ParseCIDR(rule.(string)); rule_err == nil {
-				vpn_rules = append(vpn_rules, *rule_net)
-			}
+	for _, rule := range vpn.options.Route.VPN {
+		if _, rule_net, rule_err := net.ParseCIDR(rule); rule_err == nil {
+			vpn_rules = append(vpn_rules, *rule_net)
 		}
 	}
 
 	return tun.ApplyRouter(wire_rules, vpn_rules, wire_gw, vpn_gw, false)
 }
 
-func (vpn *VPN) Init(is_server bool, options map[string]interface{}) error {
+func (vpn *VPN) Init(is_server bool, options []byte) error {
 	vpn.is_server = is_server
-	vpn.options = options
+	if err := json.Unmarshal(options, &vpn.options); err != nil {
+		return err
+	}
 
 	if err := vpn.initWireTransport(); err != nil {
 		return err

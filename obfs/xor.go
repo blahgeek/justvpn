@@ -2,28 +2,35 @@
 * @Author: BlahGeek
 * @Date:   2015-06-28
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-07-18
+* @Last Modified time: 2015-08-14
  */
 
 package obfs
 
-import "fmt"
+import "encoding/json"
+import log "github.com/Sirupsen/logrus"
 
-type XorObfusecator struct {
-	key     []byte
-	max_len int
+type XorObfusecatorOptions struct {
+	Key string `json:"key"`
 }
 
-func (xor *XorObfusecator) Open(options map[string]interface{},
-	max_obfsed_len int) error {
-	if field := options["key"]; field == nil {
-		return fmt.Errorf("`key` not found in options")
-	} else {
-		key_str := field.(string)
-		xor.key = make([]byte, len(key_str))
-		copy(xor.key, key_str)
+type XorObfusecator struct {
+	options XorObfusecatorOptions
+	max_len int
+
+	logger *log.Entry
+}
+
+func (xor *XorObfusecator) Open(options json.RawMessage, max_obfsed_len int) error {
+	xor.logger = log.WithField("logger", "XorObfusecator")
+	if err := json.Unmarshal(options, &xor.options); err != nil {
+		return err
 	}
 	xor.max_len = max_obfsed_len
+	xor.logger.WithFields(log.Fields{
+		"key":     xor.options.Key,
+		"max_len": max_obfsed_len,
+	}).Info("XOR Obfusecator init done")
 	return nil
 }
 
@@ -33,7 +40,7 @@ func (xor *XorObfusecator) GetMaxPlainLength() int { return xor.max_len }
 
 func (xor *XorObfusecator) Encode(src, dst []byte) int {
 	for i := 0; i < len(src); i += 1 {
-		c := xor.key[i%len(xor.key)]
+		c := xor.options.Key[i%len(xor.options.Key)]
 		dst[i] = c ^ src[i]
 	}
 	return len(src)

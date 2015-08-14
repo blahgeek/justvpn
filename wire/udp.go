@@ -10,8 +10,15 @@ package wire
 import "net"
 import "fmt"
 import log "github.com/Sirupsen/logrus"
+import "encoding/json"
 
 const UDP_DEFAULT_MTU = 1450
+
+type UDPTransportOptions struct {
+	ServerAddr string  `json:"server_addr"`
+	ClientAddr string  `json:"client_addr"`
+	MTU        float64 `json:"mtu"`
+}
 
 type UDPTransport struct {
 	udp         *net.UDPConn
@@ -30,32 +37,29 @@ func (trans *UDPTransport) MTU() int {
 	return trans.mtu
 }
 
-func (trans *UDPTransport) Open(is_server bool, options map[string]interface{}) error {
+func (trans *UDPTransport) Open(is_server bool, options json.RawMessage) error {
 	var server_addr, client_addr *net.UDPAddr
 	var err error
 
 	trans.logger = log.WithField("logger", "UDPTransport")
 
-	if field := options["mtu"]; field == nil {
-		trans.mtu = UDP_DEFAULT_MTU
-	} else {
-		trans.mtu = int(field.(float64))
+	var opt UDPTransportOptions
+	if err = json.Unmarshal(options, &opt); err != nil {
+		return err
+	}
+
+	trans.mtu = UDP_DEFAULT_MTU
+	if opt.MTU > 0 {
+		trans.mtu = int(opt.MTU)
 	}
 
 	trans.is_server = is_server
 
-	if field := options["server_addr"]; field == nil {
-		return fmt.Errorf("`server_addr` not found in options")
-	} else {
-		server_addr, err = net.ResolveUDPAddr("udp", field.(string))
-		if err != nil {
-			return fmt.Errorf("Error resolving server addr: %v", err)
-		}
+	if server_addr, err = net.ResolveUDPAddr("udp", opt.ServerAddr); err != nil {
+		return fmt.Errorf("Error resolving server addr: %v", err)
 	}
-
-	if field := options["client_addr"]; field != nil {
-		client_addr, err = net.ResolveUDPAddr("udp", field.(string))
-		if err != nil {
+	if len(opt.ClientAddr) > 0 {
+		if client_addr, err = net.ResolveUDPAddr("udp", opt.ClientAddr); err != nil {
 			return fmt.Errorf("Error resolving client addr: %v", err)
 		}
 	}

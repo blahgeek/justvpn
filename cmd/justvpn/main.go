@@ -10,7 +10,6 @@ package main
 import "os"
 import "os/signal"
 import "io/ioutil"
-import "encoding/json"
 import "fmt"
 import "flag"
 import "time"
@@ -77,18 +76,13 @@ func main() {
 		log.Fatal("Config file missing")
 	}
 
-	var options map[string]interface{}
-	if json_content, err := ioutil.ReadFile(flag.Arg(0)); err != nil {
+	json_content, err := ioutil.ReadFile(flag.Arg(0))
+	if err != nil {
 		log.WithField("filename", flag.Arg(0)).Fatal("Error reading config file")
-	} else {
-		err = json.Unmarshal(json_content, &options)
-		if err != nil {
-			log.WithField("filename", flag.Arg(0)).Fatal("Error parsing config file")
-		}
 	}
 
 	vpn := justvpn.VPN{}
-	if err := vpn.Init(*is_server, options); err != nil {
+	if err = vpn.Init(*is_server, json_content); err != nil {
 		log.WithField("error", err).Fatal("Error initing VPN")
 	}
 

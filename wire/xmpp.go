@@ -12,10 +12,20 @@ import "fmt"
 import "strings"
 import "crypto/tls"
 import "encoding/base64"
+import "encoding/json"
 import "github.com/mattn/go-xmpp"
 import log "github.com/Sirupsen/logrus"
 
 const XMPP_DEFAULT_MTU = 1000
+
+type XMPPTransportOptions struct {
+	MTU            float64 `json:"mtu"`
+	Host           string  `json:"host"`
+	ServerUsername string  `json:"server_username"`
+	ServerPassword string  `json:"server_password"`
+	ClientUsername string  `json:"client_username"`
+	ClientPassword string  `json:"client_password"`
+}
 
 type XMPPTransport struct {
 	client    *xmpp.Client
@@ -30,60 +40,47 @@ func (x *XMPPTransport) String() string {
 	return fmt.Sprintf("XMPP[%v]", x.remote_id)
 }
 
-func (x *XMPPTransport) Open(is_server bool, options map[string]interface{}) error {
+func (x *XMPPTransport) Open(is_server bool, options json.RawMessage) error {
+	var err error
 	x.logger = log.WithField("logger", "XMPPTransport")
+
+	var opt XMPPTransportOptions
+	if err = json.Unmarshal(options, &opt); err != nil {
+		return err
+	}
 
 	xmpp.DefaultConfig = tls.Config{
 		InsecureSkipVerify: true,
 	}
 	x.encoder = base64.StdEncoding
 
-	if field := options["mtu"]; field == nil {
-		x.mtu = XMPP_DEFAULT_MTU
-	} else {
-		x.mtu = int(field.(float64))
+	x.mtu = XMPP_DEFAULT_MTU
+	if opt.MTU > 0 {
+		x.mtu = int(opt.MTU)
 	}
 
-	host := "talk.renren.com:5222"
-	if opt_host := options["host"]; opt_host != nil {
-		host = opt_host.(string)
+	if len(opt.Host) == 0 {
+		opt.Host = "talk.renren.com:5222"
 	}
 
-	var err error
-	fetch_opt := func(server bool, field string) string {
-		if err != nil {
-			return ""
-		}
-		var key string
-		if server {
-			key = "server_" + field
-		} else {
-			key = "client_" + field
-		}
-		if field := options[key]; field != nil {
-			return field.(string)
-		}
-		err = fmt.Errorf("`%s` not found in options", key)
-		return ""
-	}
-
-	username := fetch_opt(is_server, "username")
-	passwd := fetch_opt(is_server, "password")
-	x.remote_id = fetch_opt(!is_server, "username")
-
-	if err != nil {
-		return err
+	username := opt.ClientUsername
+	passwd := opt.ClientPassword
+	x.remote_id = opt.ServerUsername
+	if is_server {
+		username = opt.ServerUsername
+		passwd = opt.ServerPassword
+		x.remote_id = opt.ClientUsername
 	}
 
 	xmpp_opts := xmpp.Options{
-		Host:     host,
+		Host:     opt.Host,
 		User:     username,
 		Password: passwd,
 		NoTLS:    true,
 		Debug:    false,
 	}
 	x.logger.WithFields(log.Fields{
-		"server":    fmt.Sprintf("%s@%s", username, host),
+		"server":    fmt.Sprintf("%s@%s", username, opt.Host),
 		"remote_id": x.remote_id,
 	}).Info("Connecting to remote")
 	x.client, err = xmpp_opts.NewClient()

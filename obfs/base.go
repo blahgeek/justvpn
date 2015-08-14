@@ -8,11 +8,12 @@
 package obfs
 
 import log "github.com/Sirupsen/logrus"
+import "encoding/json"
 import "fmt"
 
 type Obfusecator interface {
 	// Open obfs, with options (json object)
-	Open(options map[string]interface{}, max_obfsed_len int) error
+	Open(options json.RawMessage, max_obfsed_len int) error
 	// Close obfs
 	Close() error
 
@@ -27,7 +28,7 @@ type Obfusecator interface {
 	Decode(src, dst []byte) (int, error)
 }
 
-func New(name string, options map[string]interface{}, max_obfsed_len int) (Obfusecator, error) {
+func New(name string, options json.RawMessage, max_obfsed_len int) (Obfusecator, error) {
 	var ret Obfusecator
 	err := fmt.Errorf("No obfusecator found: %v", name)
 	log.WithField("name", name).Info("Allocating new obfusecator")
