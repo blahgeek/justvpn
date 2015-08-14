@@ -3,13 +3,22 @@
         "server": "10.42.0.1",
         "client": "10.42.0.2"
     }, 
-    "wire": {
-        "name": "udp",
-        "options": {
-            "server_addr": "127.0.0.1:5438",
-            "mtu": 1400
+    "wires": [
+        {
+            "name": "udp",
+            "options": {
+                "server_addr": "59.66.122.77:5438",
+                "mtu": 1400
+            }
+        },
+        {
+            "name": "udp",
+            "options": {
+                "server_addr": "59.66.122.77:5439",
+                "mtu": 1400
+            }
         }
-    },
+    ],
     "obfs": [
         {
             "name": "xor",

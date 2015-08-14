@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-06-24
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-08-13
+* @Last Modified time: 2015-08-14
  */
 
 package justvpn
@@ -21,8 +21,8 @@ const VPN_ERROR_COUNT_THRESHOLD = 32
 type VPN struct {
 	from_tun, to_tun, from_wire, to_wire chan []byte
 
-	wire_trans wire.Transport
-	wire_mtu   int
+	wire_transports []wire.Transport
+	wire_min_mtu    int
 
 	tun_trans tun.Tun
 	tun_mtu   int
@@ -32,14 +32,14 @@ type VPN struct {
 	max_packet_cap int
 
 	is_server bool
-	wire_opt  map[string]interface{}
+	wire_opts []interface{}
 	obfs_opts []interface{}
 	tun_opt   map[string]interface{}
 }
 
 func (vpn *VPN) initObfusecators() error {
 	vpn.obfusecators = make([]obfs.Obfusecator, len(vpn.obfs_opts))
-	vpn.tun_mtu = vpn.wire_mtu
+	vpn.tun_mtu = vpn.wire_min_mtu
 	for index, opt_raw := range vpn.obfs_opts {
 		opt := opt_raw.(map[string]interface{})
 		name := opt["name"].(string)
@@ -57,16 +57,23 @@ func (vpn *VPN) initObfusecators() error {
 }
 
 func (vpn *VPN) initWireTransport() error {
-	name := vpn.wire_opt["name"].(string)
-	options := vpn.wire_opt["options"].(map[string]interface{})
-	var err error
-	vpn.wire_trans, err = wire.New(name, vpn.is_server, options)
-	if err != nil {
-		return err
+	vpn.wire_transports = make([]wire.Transport, len(vpn.wire_opts))
+	vpn.wire_min_mtu = -1
+	for index, opt_raw := range vpn.wire_opts {
+		opt := opt_raw.(map[string]interface{})
+		name := opt["name"].(string)
+		options := opt["options"].(map[string]interface{})
+		var err error
+		vpn.wire_transports[index], err = wire.New(name, vpn.is_server, options)
+		if err != nil {
+			return err
+		}
+		mtu := vpn.wire_transports[index].MTU()
+		if vpn.wire_min_mtu == -1 || mtu < vpn.wire_min_mtu {
+			vpn.wire_min_mtu = mtu
+		}
 	}
-
-	vpn.wire_mtu = vpn.wire_trans.MTU()
-	log.Printf("MTU for wire transport is %d\n", vpn.wire_mtu)
+	log.Printf("MTU for wire transport is %d\n", vpn.wire_min_mtu)
 	return nil
 }
 
@@ -101,13 +108,16 @@ func (vpn *VPN) initRouter() error {
 		return err
 	}
 	log.Printf("Default gateway: %s\n", wire_gw.String())
-	return tun.ApplyRouter(vpn.wire_trans.GetGateways(), nil,
-		wire_gw, net.IP{}, false)
+	var wire_gateways []net.IPNet
+	for _, wire_trans := range vpn.wire_transports {
+		wire_gateways = append(wire_gateways, wire_trans.GetGateways()...)
+	}
+	return tun.ApplyRouter(wire_gateways, nil, wire_gw, net.IP{}, false)
 }
 
 func (vpn *VPN) Init(is_server bool, options map[string]interface{}) error {
 	vpn.is_server = is_server
-	vpn.wire_opt = options["wire"].(map[string]interface{})
+	vpn.wire_opts = options["wires"].([]interface{})
 	vpn.obfs_opts = options["obfs"].([]interface{})
 	vpn.tun_opt = options["tunnel"].(map[string]interface{})
 
@@ -124,8 +134,8 @@ func (vpn *VPN) Init(is_server bool, options map[string]interface{}) error {
 		return err
 	}
 
-	vpn.max_packet_cap = vpn.wire_mtu
-	if vpn.tun_mtu > vpn.wire_mtu {
+	vpn.max_packet_cap = vpn.wire_min_mtu
+	if vpn.tun_mtu > vpn.wire_min_mtu {
 		vpn.max_packet_cap = vpn.tun_mtu
 	}
 	for _, obfusecator := range vpn.obfusecators {
@@ -135,8 +145,8 @@ func (vpn *VPN) Init(is_server bool, options map[string]interface{}) error {
 	}
 	log.Printf("Max packet capacity: %d\n", vpn.max_packet_cap)
 
-	log.Printf("VPN Init done: %v <-> %d obfs <-> %v\n",
-		vpn.wire_trans, len(vpn.obfusecators), vpn.tun_trans)
+	log.Printf("VPN Init done: %v wires <-> %d obfs <-> %v\n",
+		len(vpn.wire_transports), len(vpn.obfusecators), vpn.tun_trans)
 
 	return nil
 }
@@ -241,8 +251,10 @@ func (vpn *VPN) Start() {
 
 	vpn.from_wire = make(chan []byte, VPN_CHANNEL_BUFFER)
 	vpn.to_wire = make(chan []byte, VPN_CHANNEL_BUFFER)
-	go vpn.readToChannel(vpn.wire_trans, vpn.wire_mtu, vpn.from_wire)
-	go vpn.writeFromChannel(vpn.wire_trans, vpn.to_wire)
+	for _, wire_trans := range vpn.wire_transports {
+		go vpn.readToChannel(wire_trans, vpn.wire_min_mtu, vpn.from_wire)
+		go vpn.writeFromChannel(wire_trans, vpn.to_wire)
+	}
 
 	vpn.from_tun = make(chan []byte, VPN_CHANNEL_BUFFER)
 	vpn.to_tun = make(chan []byte, VPN_CHANNEL_BUFFER)
