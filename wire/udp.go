@@ -22,6 +22,10 @@ type UDPTransport struct {
 	logger *log.Entry
 }
 
+func (trans *UDPTransport) String() string {
+    return fmt.Sprintf("UDP[%v]", trans.remote_addr)
+}
+
 func (trans *UDPTransport) MTU() int {
 	return trans.mtu
 }

@@ -26,6 +26,10 @@ type XMPPTransport struct {
 	logger *log.Entry
 }
 
+func (x *XMPPTransport) String() string {
+    return fmt.Sprintf("XMPP[%v]", x.remote_id)
+}
+
 func (x *XMPPTransport) Open(is_server bool, options map[string]interface{}) error {
 	x.logger = log.WithField("logger", "XMPPTransport")
 

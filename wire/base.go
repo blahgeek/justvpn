@@ -23,6 +23,8 @@ type Transport interface {
 	// Return IP Networks that should be routed via non-vpn gateway
 	GetGateways() []net.IPNet
 
+    String() string
+
 	io.Reader
 	io.Writer
 }
