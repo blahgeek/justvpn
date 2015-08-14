@@ -2,14 +2,14 @@
 * @Author: BlahGeek
 * @Date:   2015-07-18
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-07-19
+* @Last Modified time: 2015-08-14
  */
 
 package tun
 
 import "runtime"
 import "fmt"
-import "log"
+import log "github.com/Sirupsen/logrus"
 import "os/exec"
 import "net"
 import "regexp"
@@ -79,8 +79,8 @@ func ApplyInterfaceRouter(tun Tun) error {
 	vpn_dst_addr, _ := tun.GetIPv4(DST_ADDRESS)
 	cmd := exec.Command("route", "add", "-host", vpn_dst_addr.String(),
 		"-interface", tun.Name())
-	log.Printf("Applying interface router: %s %s\n",
-		cmd.Path, strings.Join(cmd.Args, " "))
+	log.WithField("cmd", fmt.Sprintf("%s %s", cmd.Path, strings.Join(cmd.Args, " "))).
+		Debug("Applying interface router")
 	return cmd.Run()
 }
 
@@ -110,7 +110,8 @@ func ApplyRouter(wire_rules, vpn_rules []net.IPNet,
 			}
 			running_count += 1
 			go func() {
-				log.Printf("Applying router: %s\n", rule)
+				log.WithField("cmd", strings.Join(rule, " ")).
+					Debug("Applying router")
 				waiter <- exec.Command(rule[0], rule[1:]...).Run()
 			}()
 		}
@@ -123,8 +124,11 @@ func ApplyRouter(wire_rules, vpn_rules []net.IPNet,
 		}
 	}
 
-	log.Printf("Applying routers done, %d/%d failed\n",
-		total_err_count, len(rules))
+	log.WithFields(log.Fields{
+		"all":   len(rules),
+		"error": total_err_count,
+	}).Info("Applying routers done")
+
 	if total_err_count > 0 {
 		return fmt.Errorf("Applying routers error")
 	}

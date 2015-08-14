@@ -2,13 +2,13 @@
 * @Author: BlahGeek
 * @Date:   2015-06-24
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-07-18
+* @Last Modified time: 2015-08-14
  */
 
 package wire
 
 import "io"
-import "log"
+import log "github.com/Sirupsen/logrus"
 import "fmt"
 import "net"
 
@@ -29,13 +29,12 @@ type Transport interface {
 
 func New(name string, is_server bool, options map[string]interface{}) (Transport, error) {
 	var ret Transport
+	log.WithField("name", name).Info("Allocating new wire transport")
 
 	switch name {
 	case "udp":
-		log.Println("New wire transport: UDPTransport")
 		ret = &UDPTransport{}
 	case "xmpp":
-		log.Println("New wire transport: XMPPTransport")
 		ret = &XMPPTransport{}
 	default:
 		return ret, fmt.Errorf("No wire transport found: %v", name)

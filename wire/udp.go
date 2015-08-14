@@ -2,14 +2,14 @@
 * @Author: BlahGeek
 * @Date:   2015-06-24
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-08-13
+* @Last Modified time: 2015-08-14
  */
 
 package wire
 
 import "net"
 import "fmt"
-import "log"
+import log "github.com/Sirupsen/logrus"
 
 const UDP_DEFAULT_MTU = 1450
 
@@ -18,6 +18,8 @@ type UDPTransport struct {
 	remote_addr *net.UDPAddr
 	is_server   bool
 	mtu         int
+
+	logger *log.Entry
 }
 
 func (trans *UDPTransport) MTU() int {
@@ -27,6 +29,8 @@ func (trans *UDPTransport) MTU() int {
 func (trans *UDPTransport) Open(is_server bool, options map[string]interface{}) error {
 	var server_addr, client_addr *net.UDPAddr
 	var err error
+
+	trans.logger = log.WithField("logger", "UDPTransport")
 
 	if field := options["mtu"]; field == nil {
 		trans.mtu = UDP_DEFAULT_MTU
@@ -53,13 +57,16 @@ func (trans *UDPTransport) Open(is_server bool, options map[string]interface{}) 
 	}
 
 	if is_server {
-		log.Printf("UDP Server: listening on %v", server_addr)
+		trans.logger.WithField("addr", server_addr).Info("Listening on address")
 		trans.udp, err = net.ListenUDP("udp", server_addr)
 		if err != nil {
 			return fmt.Errorf("Error listening UDP: %v", err)
 		}
 	} else {
-		log.Printf("UDP Client: dialing to %v from %v", server_addr, client_addr)
+		trans.logger.WithFields(log.Fields{
+			"server": server_addr,
+			"local":  client_addr,
+		}).Info("Dialing to address")
 		trans.udp, err = net.DialUDP("udp", client_addr, server_addr)
 		if err != nil {
 			return fmt.Errorf("Error dialing UDP: %v", err)

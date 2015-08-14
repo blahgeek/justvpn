@@ -2,12 +2,12 @@
 * @Author: BlahGeek
 * @Date:   2015-06-28
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-07-18
+* @Last Modified time: 2015-08-14
  */
 
 package obfs
 
-import "log"
+import log "github.com/Sirupsen/logrus"
 import "fmt"
 
 type Obfusecator interface {
@@ -30,10 +30,10 @@ type Obfusecator interface {
 func New(name string, options map[string]interface{}, max_obfsed_len int) (Obfusecator, error) {
 	var ret Obfusecator
 	err := fmt.Errorf("No obfusecator found: %v", name)
+	log.WithField("name", name).Info("Allocating new obfusecator")
 
 	switch name {
 	case "xor":
-		log.Printf("New obfusecator: %v", name)
 		ret = &XorObfusecator{}
 		err = ret.Open(options, max_obfsed_len)
 	default:

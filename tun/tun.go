@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-06-23
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-06-28
+* @Last Modified time: 2015-08-14
  */
 
 package tun
@@ -13,7 +13,7 @@ import "io"
 import "syscall"
 import "unsafe"
 import "strconv"
-import "log"
+import log "github.com/Sirupsen/logrus"
 import "strings"
 import "runtime"
 
@@ -193,7 +193,7 @@ func New() (Tun, error) {
 		}
 	}
 
-	log.Printf("Allocating TUN interface: %v\n", name)
+	log.WithField("name", name).Info("Allocating TUN interface")
 
 	switch runtime.GOOS {
 	case "darwin":

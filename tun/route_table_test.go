@@ -2,13 +2,13 @@
 * @Author: BlahGeek
 * @Date:   2015-07-19
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-07-19
+* @Last Modified time: 2015-08-14
  */
 
 package tun
 
 import "net"
-import "log"
+import "fmt"
 import "runtime"
 import "strings"
 import "testing"
@@ -49,5 +49,5 @@ func TestDefaultGateway(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	log.Printf("Default gateway: %s\n", ip.String())
+	fmt.Printf("Default gateway: %s\n", ip.String())
 }

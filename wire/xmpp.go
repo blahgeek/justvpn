@@ -2,18 +2,18 @@
 * @Author: BlahGeek
 * @Date:   2015-07-02
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-07-19
+* @Last Modified time: 2015-08-14
  */
 
 package wire
 
-import "log"
 import "net"
 import "fmt"
 import "strings"
 import "crypto/tls"
 import "encoding/base64"
 import "github.com/mattn/go-xmpp"
+import log "github.com/Sirupsen/logrus"
 
 const XMPP_DEFAULT_MTU = 1000
 
@@ -22,9 +22,13 @@ type XMPPTransport struct {
 	remote_id string
 	encoder   *base64.Encoding
 	mtu       int
+
+	logger *log.Entry
 }
 
 func (x *XMPPTransport) Open(is_server bool, options map[string]interface{}) error {
+	x.logger = log.WithField("logger", "XMPPTransport")
+
 	xmpp.DefaultConfig = tls.Config{
 		InsecureSkipVerify: true,
 	}
@@ -74,8 +78,10 @@ func (x *XMPPTransport) Open(is_server bool, options map[string]interface{}) err
 		NoTLS:    true,
 		Debug:    false,
 	}
-	log.Printf("XMPP: Connecting to %s as %s, remote is %s\n",
-		host, username, x.remote_id)
+	x.logger.WithFields(log.Fields{
+		"server":    fmt.Sprintf("%s@%s", username, host),
+		"remote_id": x.remote_id,
+	}).Info("Connecting to remote")
 	x.client, err = xmpp_opts.NewClient()
 	if err != nil {
 		return err
@@ -115,23 +121,25 @@ func (x *XMPPTransport) Read(buf []byte) (int, error) {
 		switch chat := msg.(type) {
 		case xmpp.Chat:
 			if chat.Remote != x.remote_id {
-				log.Printf("XMPP: Remote ID does not match: %v\n", chat.Remote)
+				x.logger.WithField("remote_id", chat.Remote).
+					Warning("Remote ID does not match")
 				continue
 			}
 			if chat.Type == "chat_retry" {
 				continue // FIXME
 			}
 			if len(chat.Text) == 0 {
-				log.Println("XMPP: Empty text")
+				x.logger.Warning("Empty text")
 				continue
 			}
 			var dec_buf []byte
 			dec_buf, err = x.encoder.DecodeString(chat.Text)
 			if err != nil {
 				if strings.Contains(chat.Text, "过于频繁") {
-					log.Printf("XMPP server complains about too much messages\n")
+					x.logger.Warning("Server complains about too much messages")
+				} else {
+					x.logger.WithField("text", chat.Text).Warning("Unable to decode")
 				}
-				log.Printf("XMPP: Unable to decode: %v\n", chat.Text)
 				continue
 			}
 			return copy(buf, dec_buf), nil

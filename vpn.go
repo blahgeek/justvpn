@@ -7,13 +7,13 @@
 
 package justvpn
 
-import "log"
 import "io"
 import "fmt"
 import "net"
 import "github.com/blahgeek/justvpn/tun"
 import "github.com/blahgeek/justvpn/wire"
 import "github.com/blahgeek/justvpn/obfs"
+import log "github.com/Sirupsen/logrus"
 
 const VPN_CHANNEL_BUFFER = 64
 const VPN_ERROR_COUNT_THRESHOLD = 32
@@ -50,7 +50,11 @@ func (vpn *VPN) initObfusecators() error {
 			return fmt.Errorf("Error while allocating obfusecator %v: %v", name, err)
 		}
 		obfs_max_plain_len := vpn.obfusecators[index].GetMaxPlainLength()
-		log.Printf("Obfs %s: MTU %d->%d\n", name, vpn.tun_mtu, obfs_max_plain_len)
+		log.WithFields(log.Fields{
+			"name": name,
+			"old":  vpn.tun_mtu,
+			"new":  obfs_max_plain_len,
+		}).Info("Updating MTU for obfusecator")
 		vpn.tun_mtu = obfs_max_plain_len
 	}
 	return nil
@@ -73,7 +77,7 @@ func (vpn *VPN) initWireTransport() error {
 			vpn.wire_min_mtu = mtu
 		}
 	}
-	log.Printf("MTU for wire transport is %d\n", vpn.wire_min_mtu)
+	log.WithField("mtu", vpn.wire_min_mtu).Info("MTU for wire transport detected")
 	return nil
 }
 
@@ -87,16 +91,22 @@ func (vpn *VPN) initTunTransport() error {
 	tun_server_addr := net.ParseIP(vpn.tun_opt["server"].(string))
 	tun_client_addr := net.ParseIP(vpn.tun_opt["client"].(string))
 	if vpn.is_server {
-		log.Printf("Setting TUN IP: %v -> %v\n", tun_server_addr, tun_client_addr)
+		log.WithFields(log.Fields{
+			"local":  tun_server_addr,
+			"remote": tun_client_addr,
+		}).Info("Setting up TUN IP")
 		vpn.tun_trans.SetIPv4(tun.ADDRESS, tun_server_addr)
 		vpn.tun_trans.SetIPv4(tun.DST_ADDRESS, tun_client_addr)
 	} else {
-		log.Printf("Setting TUN IP: %v -> %v\n", tun_client_addr, tun_server_addr)
+		log.WithFields(log.Fields{
+			"local":  tun_client_addr,
+			"remote": tun_server_addr,
+		}).Info("Setting up TUN IP")
 		vpn.tun_trans.SetIPv4(tun.ADDRESS, tun_client_addr)
 		vpn.tun_trans.SetIPv4(tun.DST_ADDRESS, tun_server_addr)
 	}
 
-	log.Printf("MTU for TUN transport is %d\n", vpn.tun_mtu)
+	log.WithField("mtu", vpn.tun_mtu).Info("Setting MTU for TUN transport")
 	vpn.tun_trans.SetMTU(vpn.tun_mtu)
 
 	return tun.ApplyInterfaceRouter(vpn.tun_trans)
@@ -107,7 +117,7 @@ func (vpn *VPN) initRouter() error {
 	if err != nil {
 		return err
 	}
-	log.Printf("Default gateway: %s\n", wire_gw.String())
+	log.WithField("gateway", wire_gw.String()).Info("Default gateway detected")
 	var wire_gateways []net.IPNet
 	for _, wire_trans := range vpn.wire_transports {
 		wire_gateways = append(wire_gateways, wire_trans.GetGateways()...)
@@ -143,10 +153,11 @@ func (vpn *VPN) Init(is_server bool, options map[string]interface{}) error {
 			vpn.max_packet_cap = max_packet
 		}
 	}
-	log.Printf("Max packet capacity: %d\n", vpn.max_packet_cap)
-
-	log.Printf("VPN Init done: %v wires <-> %d obfs <-> %v\n",
-		len(vpn.wire_transports), len(vpn.obfusecators), vpn.tun_trans)
+	log.WithField("capacity", vpn.max_packet_cap).Debug("Using MAX packet capacity")
+	log.WithFields(log.Fields{
+		"wires": len(vpn.wire_transports),
+		"obfs":  len(vpn.obfusecators),
+	}).Info("VPN Init done")
 
 	return nil
 }
@@ -154,15 +165,19 @@ func (vpn *VPN) Init(is_server bool, options map[string]interface{}) error {
 func (vpn *VPN) readToChannel(reader io.Reader, mtu int, c chan<- []byte) {
 
 	defer func() {
-		log.Printf("Exit reading from %v", reader)
+		log.WithField("reader", reader).Error("Read failed")
 	}()
 
 	var error_count int = 0
 	for {
 		buf := make([]byte, mtu, vpn.max_packet_cap)
 		if rdlen, err := reader.Read(buf); rdlen == 0 || err != nil {
-			log.Printf("Error reading from %v: %v, error count = %v",
-				reader, err, error_count)
+			error_count += 1
+			log.WithFields(log.Fields{
+				"reader": reader,
+				"error":  err,
+				"count":  error_count,
+			}).Warning("Error reading from reader")
 			if error_count > VPN_ERROR_COUNT_THRESHOLD {
 				break
 			}
@@ -176,20 +191,22 @@ func (vpn *VPN) readToChannel(reader io.Reader, mtu int, c chan<- []byte) {
 func (vpn *VPN) writeFromChannel(writer io.Writer, c <-chan []byte) {
 
 	defer func() {
-		log.Printf("Exit writing to %v", writer)
+		log.WithField("writer", writer).Error("Write failed")
 	}()
 
 	var error_count int = 0
 	for {
 		buf, ok := <-c
 		if !ok {
-			log.Fatalf("Error reading from channel %v", c)
 			break
 		}
 		if wlen, err := writer.Write(buf); wlen != len(buf) || err != nil {
 			error_count += 1
-			log.Printf("Error writing to %v: %v, error count = %v",
-				writer, err, error_count)
+			log.WithFields(log.Fields{
+				"writer": writer,
+				"error":  err,
+				"count":  error_count,
+			}).Warning("Error writing to writer")
 			if error_count > VPN_ERROR_COUNT_THRESHOLD {
 				break
 			}
@@ -202,7 +219,7 @@ func (vpn *VPN) writeFromChannel(writer io.Writer, c <-chan []byte) {
 func (vpn *VPN) obfsEncode(plain_c <-chan []byte, obfsed_c chan<- []byte) {
 
 	defer func() {
-		log.Printf("Exit obfs encoding")
+		log.Error("Exit obfs encoding")
 	}()
 
 	buffer := make([]byte, 0, vpn.max_packet_cap)
@@ -223,7 +240,7 @@ func (vpn *VPN) obfsEncode(plain_c <-chan []byte, obfsed_c chan<- []byte) {
 func (vpn *VPN) obfsDecode(obfsed_c <-chan []byte, plain_c chan<- []byte) {
 
 	defer func() {
-		log.Printf("Exit obfs decoding")
+		log.Error("Exit obfs decoding")
 	}()
 
 	buffer := make([]byte, 0, vpn.max_packet_cap)
@@ -237,7 +254,8 @@ OuterLoop:
 		for i := len(vpn.obfusecators) - 1; i >= 0; i-- {
 			dst := buffer[:cap(buffer)]
 			if declen, err := vpn.obfusecators[i].Decode(data, dst); err != nil {
-				log.Printf("Error while decoding by %v, drop\n", vpn.obfusecators[i])
+				log.WithField("obfusecator", vpn.obfusecators[i]).
+					Warning("Error decoding, drop it")
 				continue OuterLoop
 			} else {
 				data, buffer = dst[:declen], data
