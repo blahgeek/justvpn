@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-06-24
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-08-14
+* @Last Modified time: 2015-08-15
  */
 
 package justvpn
@@ -10,6 +10,7 @@ package justvpn
 import "io"
 import "fmt"
 import "net"
+import "sync"
 import "github.com/blahgeek/justvpn/tun"
 import "github.com/blahgeek/justvpn/wire"
 import "github.com/blahgeek/justvpn/obfs"
@@ -40,6 +41,11 @@ type VPNOptions struct {
 
 type VPN struct {
 	from_tun, to_tun, from_wire, to_wire chan []byte
+	waiter                               sync.WaitGroup
+
+	// saved route rules
+	wire_rules, vpn_rules []net.IPNet
+	wire_gw, vpn_gw       net.IP
 
 	wire_transports []wire.Transport
 	wire_min_mtu    int
@@ -126,22 +132,19 @@ func (vpn *VPN) initTunTransport() error {
 
 func (vpn *VPN) initRouter() error {
 	var err error
-	var wire_gw, vpn_gw net.IP
 
-	wire_gw, err = tun.GetWireDefaultGateway()
+	vpn.wire_gw, err = tun.GetWireDefaultGateway()
 	if err != nil {
 		return err
 	}
-	vpn_gw, err = vpn.tun_trans.GetIPv4(tun.DST_ADDRESS)
+	vpn.vpn_gw, err = vpn.tun_trans.GetIPv4(tun.DST_ADDRESS)
 	if err != nil {
 		return err
 	}
 	log.WithFields(log.Fields{
-		"wire_gw": wire_gw,
-		"vpn_gw":  vpn_gw,
+		"wire_gw": vpn.wire_gw,
+		"vpn_gw":  vpn.vpn_gw,
 	}).Info("Default gateway for non-VPN and VPN traffic")
-
-	var wire_rules, vpn_rules []net.IPNet
 
 	for _, wire_trans := range vpn.wire_transports {
 		nets := wire_trans.GetWireNetworks()
@@ -149,21 +152,22 @@ func (vpn *VPN) initRouter() error {
 			"wire":     wire_trans,
 			"networks": nets,
 		}).Debug("Setting router for wire transport")
-		wire_rules = append(wire_rules, nets...)
+		vpn.wire_rules = append(vpn.wire_rules, nets...)
 	}
 
 	for _, rule := range vpn.options.Route.Wire {
 		if _, rule_net, rule_err := net.ParseCIDR(rule); rule_err == nil {
-			wire_rules = append(wire_rules, *rule_net)
+			vpn.wire_rules = append(vpn.wire_rules, *rule_net)
 		}
 	}
 	for _, rule := range vpn.options.Route.VPN {
 		if _, rule_net, rule_err := net.ParseCIDR(rule); rule_err == nil {
-			vpn_rules = append(vpn_rules, *rule_net)
+			vpn.vpn_rules = append(vpn.vpn_rules, *rule_net)
 		}
 	}
 
-	return tun.ApplyRouter(wire_rules, vpn_rules, wire_gw, vpn_gw, false)
+	return tun.ApplyRouter(vpn.wire_rules, vpn.vpn_rules,
+		vpn.wire_gw, vpn.vpn_gw, false)
 }
 
 func (vpn *VPN) Init(is_server bool, options []byte) error {
@@ -208,7 +212,8 @@ func (vpn *VPN) Init(is_server bool, options []byte) error {
 func (vpn *VPN) readToChannel(reader io.Reader, mtu int, c chan<- []byte) {
 
 	defer func() {
-		log.WithField("reader", reader).Error("Read failed")
+		log.WithField("reader", reader).Warning("Read failed")
+		vpn.waiter.Done()
 	}()
 
 	var error_count int = 0
@@ -234,7 +239,8 @@ func (vpn *VPN) readToChannel(reader io.Reader, mtu int, c chan<- []byte) {
 func (vpn *VPN) writeFromChannel(writer io.Writer, c <-chan []byte) {
 
 	defer func() {
-		log.WithField("writer", writer).Error("Write failed")
+		log.WithField("writer", writer).Warning("Write failed")
+		vpn.waiter.Done()
 	}()
 
 	var error_count int = 0
@@ -262,7 +268,8 @@ func (vpn *VPN) writeFromChannel(writer io.Writer, c <-chan []byte) {
 func (vpn *VPN) obfsEncode(plain_c <-chan []byte, obfsed_c chan<- []byte) {
 
 	defer func() {
-		log.Error("Exit obfs encoding")
+		log.Warning("Exit obfs encoding")
+		vpn.waiter.Done()
 	}()
 
 	buffer := make([]byte, 0, vpn.max_packet_cap)
@@ -283,7 +290,8 @@ func (vpn *VPN) obfsEncode(plain_c <-chan []byte, obfsed_c chan<- []byte) {
 func (vpn *VPN) obfsDecode(obfsed_c <-chan []byte, plain_c chan<- []byte) {
 
 	defer func() {
-		log.Error("Exit obfs decoding")
+		log.Warning("Exit obfs decoding")
+		vpn.waiter.Done()
 	}()
 
 	buffer := make([]byte, 0, vpn.max_packet_cap)
@@ -309,19 +317,59 @@ OuterLoop:
 }
 
 func (vpn *VPN) Start() {
+	vpn.waiter = sync.WaitGroup{}
 
 	vpn.from_wire = make(chan []byte, VPN_CHANNEL_BUFFER)
 	vpn.to_wire = make(chan []byte, VPN_CHANNEL_BUFFER)
 	for _, wire_trans := range vpn.wire_transports {
+		vpn.waiter.Add(2)
 		go vpn.readToChannel(wire_trans, vpn.wire_min_mtu, vpn.from_wire)
 		go vpn.writeFromChannel(wire_trans, vpn.to_wire)
 	}
 
 	vpn.from_tun = make(chan []byte, VPN_CHANNEL_BUFFER)
 	vpn.to_tun = make(chan []byte, VPN_CHANNEL_BUFFER)
+	vpn.waiter.Add(2)
 	go vpn.readToChannel(vpn.tun_trans, vpn.tun_mtu, vpn.from_tun)
 	go vpn.writeFromChannel(vpn.tun_trans, vpn.to_tun)
 
+	vpn.waiter.Add(2)
 	go vpn.obfsEncode(vpn.from_tun, vpn.to_wire)
 	go vpn.obfsDecode(vpn.from_wire, vpn.to_tun)
+}
+
+func (vpn *VPN) Destroy() {
+	log.Warning("Stopping VPN service")
+	close(vpn.from_wire)
+	close(vpn.from_tun)
+	close(vpn.to_wire)
+	close(vpn.to_tun)
+
+	var err error
+
+	err = tun.ApplyRouter(vpn.wire_rules, vpn.vpn_rules,
+		vpn.wire_gw, vpn.vpn_gw, true)
+	log.WithField("error", err).Warning("Route rules deleted")
+
+	if vpn.tun_trans != nil {
+		err = vpn.tun_trans.Destroy()
+		log.WithField("error", err).Warning("TUN device destroyed")
+	}
+	for _, obfs := range vpn.obfusecators {
+		err = obfs.Close()
+		log.WithFields(log.Fields{
+			"obfs":  obfs,
+			"error": err,
+		}).Warning("Obfusecator closed")
+	}
+	for _, wire_trans := range vpn.wire_transports {
+		err = wire_trans.Close()
+		log.WithFields(log.Fields{
+			"wire":  wire_trans,
+			"error": err,
+		}).Warning("Wire transport closed")
+	}
+
+	log.Info("Waiting for all workers to exit")
+	vpn.waiter.Wait()
 }

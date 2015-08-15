@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-06-23
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-08-14
+* @Last Modified time: 2015-08-15
  */
 
 package main
@@ -65,7 +65,7 @@ func main() {
 	if *cpuprofile != "" {
 		fmt.Printf("Saving CPU profile to %v", *cpuprofile)
 		if f, err := os.Create(*cpuprofile); err != nil {
-			log.Fatal(err)
+			log.Error(err)
 		} else {
 			pprof.StartCPUProfile(f)
 			defer pprof.StopCPUProfile()
@@ -73,17 +73,18 @@ func main() {
 	}
 
 	if flag.NArg() == 0 {
-		log.Fatal("Config file missing")
+		log.Error("Config file missing")
 	}
 
 	json_content, err := ioutil.ReadFile(flag.Arg(0))
 	if err != nil {
-		log.WithField("filename", flag.Arg(0)).Fatal("Error reading config file")
+		log.WithField("filename", flag.Arg(0)).Error("Error reading config file")
 	}
 
 	vpn := justvpn.VPN{}
+	defer vpn.Destroy()
 	if err = vpn.Init(*is_server, json_content); err != nil {
-		log.WithField("error", err).Fatal("Error initing VPN")
+		log.WithField("error", err).Error("Error initing VPN")
 	}
 
 	vpn.Start()
