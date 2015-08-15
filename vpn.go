@@ -107,6 +107,9 @@ func (vpn *VPN) initTunTransport() error {
 
 	tun_server_addr := net.ParseIP(vpn.options.Tunnel.Server)
 	tun_client_addr := net.ParseIP(vpn.options.Tunnel.Client)
+	if tun_server_addr == nil || tun_client_addr == nil {
+		return fmt.Errorf("Invalid TUN Address")
+	}
 	if vpn.is_server {
 		log.WithFields(log.Fields{
 			"local":  tun_server_addr,
@@ -334,10 +337,15 @@ func (vpn *VPN) Start() {
 
 func (vpn *VPN) Destroy() {
 	log.Warning("Stopping VPN service")
-	close(vpn.from_wire)
-	close(vpn.from_tun)
-	close(vpn.to_wire)
-	close(vpn.to_tun)
+	close_not_nil := func(x chan []byte) {
+		if x != nil {
+			close(x)
+		}
+	}
+	close_not_nil(vpn.from_wire)
+	close_not_nil(vpn.from_tun)
+	close_not_nil(vpn.to_wire)
+	close_not_nil(vpn.to_tun)
 
 	var err error
 
