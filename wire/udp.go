@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-06-24
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-08-14
+* @Last Modified time: 2015-08-15
  */
 
 package wire
@@ -116,14 +116,11 @@ func (trans *UDPTransport) Read(buf []byte) (int, error) {
 
 func (trans *UDPTransport) Write(buf []byte) (int, error) {
 	if trans.remote_addr == nil && trans.is_server {
-		return 0, fmt.Errorf("Remote UDP Address not available")
+		return 0, nil
 	}
 
 	if trans.is_server {
 		return trans.udp.WriteToUDP(buf, trans.remote_addr)
-	} else {
-		return trans.udp.Write(buf)
 	}
-
-	return 0, nil
+	return trans.udp.Write(buf)
 }

@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-06-23
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-08-14
+* @Last Modified time: 2015-08-15
  */
 
 package tun
@@ -43,6 +43,8 @@ type Tun interface {
 	Create(string) error
 	// Close and destroy interface
 	Destroy() error
+
+	String() string
 }
 
 type _BaseTun struct {
@@ -61,6 +63,10 @@ func ioctl(cmd, ptr uintptr) error {
 		return nil
 	}
 	return errno
+}
+
+func (tun *_BaseTun) String() string {
+	return fmt.Sprintf("[%s:%d]", tun.name, tun.fd)
 }
 
 func (tun *_BaseTun) Name() string {

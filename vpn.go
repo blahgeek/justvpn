@@ -18,7 +18,6 @@ import "encoding/json"
 import log "github.com/Sirupsen/logrus"
 
 const VPN_CHANNEL_BUFFER = 64
-const VPN_ERROR_COUNT_THRESHOLD = 32
 
 type VPNOptions struct {
 	Tunnel struct {
@@ -212,25 +211,21 @@ func (vpn *VPN) Init(is_server bool, options []byte) error {
 func (vpn *VPN) readToChannel(reader io.Reader, mtu int, c chan<- []byte) {
 
 	defer func() {
-		log.WithField("reader", reader).Warning("Read failed")
+		log.WithField("reader", reader).Warning("Reading from reader exited")
 		vpn.waiter.Done()
 	}()
 
-	var error_count int = 0
 	for {
 		buf := make([]byte, mtu, vpn.max_packet_cap)
-		if rdlen, err := reader.Read(buf); rdlen == 0 || err != nil {
-			error_count += 1
+		if rdlen, err := reader.Read(buf); err != nil {
 			log.WithFields(log.Fields{
 				"reader": reader,
 				"error":  err,
-				"count":  error_count,
-			}).Warning("Error reading from reader")
-			if error_count > VPN_ERROR_COUNT_THRESHOLD {
-				break
-			}
+			}).Warning("Error reading from reader, exit")
+			break
+		} else if rdlen == 0 {
+			log.WithField("reader", reader).Warning("Read zero byte from reader, ignore")
 		} else {
-			error_count = 0
 			c <- buf[:rdlen]
 		}
 	}
@@ -239,28 +234,27 @@ func (vpn *VPN) readToChannel(reader io.Reader, mtu int, c chan<- []byte) {
 func (vpn *VPN) writeFromChannel(writer io.Writer, c <-chan []byte) {
 
 	defer func() {
-		log.WithField("writer", writer).Warning("Write failed")
+		log.WithField("writer", writer).Warning("Writing to writer exited")
 		vpn.waiter.Done()
 	}()
 
-	var error_count int = 0
 	for {
 		buf, ok := <-c
 		if !ok {
 			break
 		}
-		if wlen, err := writer.Write(buf); wlen != len(buf) || err != nil {
-			error_count += 1
+		if wlen, err := writer.Write(buf); err != nil {
 			log.WithFields(log.Fields{
 				"writer": writer,
 				"error":  err,
-				"count":  error_count,
-			}).Warning("Error writing to writer")
-			if error_count > VPN_ERROR_COUNT_THRESHOLD {
-				break
-			}
-		} else {
-			error_count = 0
+			}).Warning("Error writing to writer, exit")
+			break
+		} else if wlen != len(buf) {
+			log.WithFields(log.Fields{
+				"writer":    writer,
+				"buf_len":   len(buf),
+				"write_len": wlen,
+			}).Warning("Not all bytes is wrotten into writer, ignore")
 		}
 	}
 }
@@ -268,7 +262,7 @@ func (vpn *VPN) writeFromChannel(writer io.Writer, c <-chan []byte) {
 func (vpn *VPN) obfsEncode(plain_c <-chan []byte, obfsed_c chan<- []byte) {
 
 	defer func() {
-		log.Warning("Exit obfs encoding")
+		log.Warning("Obfusecator encoding worker exited")
 		vpn.waiter.Done()
 	}()
 
@@ -290,7 +284,7 @@ func (vpn *VPN) obfsEncode(plain_c <-chan []byte, obfsed_c chan<- []byte) {
 func (vpn *VPN) obfsDecode(obfsed_c <-chan []byte, plain_c chan<- []byte) {
 
 	defer func() {
-		log.Warning("Exit obfs decoding")
+		log.Warning("Obfusecator decoding worker exited")
 		vpn.waiter.Done()
 	}()
 
@@ -349,25 +343,25 @@ func (vpn *VPN) Destroy() {
 
 	err = tun.ApplyRouter(vpn.wire_rules, vpn.vpn_rules,
 		vpn.wire_gw, vpn.vpn_gw, true)
-	log.WithField("error", err).Warning("Route rules deleted")
+	log.WithField("error", err).Info("Route rules deleted")
 
 	if vpn.tun_trans != nil {
 		err = vpn.tun_trans.Destroy()
-		log.WithField("error", err).Warning("TUN device destroyed")
+		log.WithField("error", err).Info("TUN device destroyed")
 	}
 	for _, obfs := range vpn.obfusecators {
 		err = obfs.Close()
 		log.WithFields(log.Fields{
 			"obfs":  obfs,
 			"error": err,
-		}).Warning("Obfusecator closed")
+		}).Info("Obfusecator closed")
 	}
 	for _, wire_trans := range vpn.wire_transports {
 		err = wire_trans.Close()
 		log.WithFields(log.Fields{
 			"wire":  wire_trans,
 			"error": err,
-		}).Warning("Wire transport closed")
+		}).Info("Wire transport closed")
 	}
 
 	log.Info("Waiting for all workers to exit")
