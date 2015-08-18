@@ -2,11 +2,12 @@
 * @Author: BlahGeek
 * @Date:   2015-06-28
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-08-14
+* @Last Modified time: 2015-08-16
  */
 
 package obfs
 
+import "fmt"
 import "encoding/json"
 import log "github.com/Sirupsen/logrus"
 
@@ -19,6 +20,10 @@ type XorObfusecator struct {
 	max_len int
 
 	logger *log.Entry
+}
+
+func (xor *XorObfusecator) String() string {
+	return fmt.Sprintf("XorObfusecator[%s]", xor.options.Key)
 }
 
 func (xor *XorObfusecator) Open(options json.RawMessage, max_obfsed_len int) error {

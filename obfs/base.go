@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-06-28
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-08-14
+* @Last Modified time: 2015-08-16
  */
 
 package obfs
@@ -26,6 +26,8 @@ type Obfusecator interface {
 	// Decode src to dst, return length of dst
 	// len(dst) would be at least len(src) - GetMaxOverhead()
 	Decode(src, dst []byte) (int, error)
+
+	String() string
 }
 
 func New(name string, options json.RawMessage, max_obfsed_len int) (Obfusecator, error) {

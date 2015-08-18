@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-06-23
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-08-15
+* @Last Modified time: 2015-08-16
  */
 
 package main
@@ -20,18 +20,20 @@ import log "github.com/Sirupsen/logrus"
 
 type LogFormatter struct {
 	text_formatter *log.TextFormatter
+	default_logger string
 }
 
 func (f *LogFormatter) Format(entry *log.Entry) ([]byte, error) {
-	logger := "JUSTVPN"
+	logger_len := len(f.default_logger)
+	logger := f.default_logger
 	if val, ok := entry.Data["logger"]; ok {
 		logger = val.(string)
 		delete(entry.Data, "logger")
 	}
-	for len(logger) < 7 {
+	for len(logger) < logger_len {
 		logger += " "
 	}
-	logger = logger[:7]
+	logger = logger[:logger_len]
 	prefix := bytes.NewBufferString(fmt.Sprintf("[%s] ", logger))
 	output, err := f.text_formatter.Format(entry)
 	prefix.Write(output)
@@ -49,7 +51,7 @@ func main() {
 	log.SetFormatter(&LogFormatter{&log.TextFormatter{
 		FullTimestamp:   true,
 		TimestampFormat: time.RFC822,
-	}})
+	}, "JUSTVPN"})
 	log.SetLevel(log.InfoLevel)
 	if *verbose {
 		log.SetLevel(log.DebugLevel)
@@ -63,7 +65,7 @@ func main() {
 		log.Info("Running as server!")
 	}
 	if *cpuprofile != "" {
-		fmt.Printf("Saving CPU profile to %v", *cpuprofile)
+		log.Info("Saving CPU profile to %v", *cpuprofile)
 		if f, err := os.Create(*cpuprofile); err != nil {
 			log.Fatal(err)
 		} else {
