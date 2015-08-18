@@ -371,7 +371,4 @@ func (vpn *VPN) Destroy() {
 			"error": err,
 		}).Info("Wire transport closed")
 	}
-
-	log.Info("Waiting for all workers to exit")
-	vpn.waiter.Wait()
 }

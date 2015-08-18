@@ -114,3 +114,7 @@ func (tun *UTun) Write(buf []byte) (int, error) {
 	n, err := syscall.Write(tun.fd, write_buf)
 	return n - 4, err
 }
+
+func (tun *UTun) Destroy() error {
+	return tun.Close()
+}

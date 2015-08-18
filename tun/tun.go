@@ -174,7 +174,7 @@ func (tun *_BaseTun) SetIPv4(typ int, ip net.IP) error {
 	return ioctl(cmd, uintptr(unsafe.Pointer(&ifreq)))
 }
 
-func (tun *_BaseTun) Destroy() error {
+func (tun *_BaseTun) Close() error {
 	defer func() {
 		tun.fd = -1
 	}()

@@ -52,6 +52,21 @@ func (tun *LinuxTun) Up() error {
 	return tun.SetFlags(flags | _IFF_UP)
 }
 
+func (tun *LinuxTun) Down() error {
+	flags, err := tun.GetFlags()
+	if err != nil {
+		return err
+	}
+	return tun.SetFlags(flags &^ _IFF_UP)
+}
+
+func (tun *LinuxTun) Destroy() error {
+    if err := tun.Down(); err != nil {
+        return err
+    }
+    return tun.Close()
+}
+
 func (tun *LinuxTun) Read(buf []byte) (int, error) {
 	return syscall.Read(tun.fd, buf)
 }
