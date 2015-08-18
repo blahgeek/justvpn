@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-06-24
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-08-15
+* @Last Modified time: 2015-08-18
  */
 
 package wire
@@ -88,13 +88,10 @@ func (trans *UDPTransport) Open(is_server bool, options json.RawMessage) error {
 func (trans *UDPTransport) GetWireNetworks() []net.IPNet {
 	if trans.is_server {
 		return make([]net.IPNet, 0)
-	} else {
-		return []net.IPNet{
-			net.IPNet{
-				trans.remote_addr.IP,
-				net.IPv4Mask(255, 255, 255, 255),
-			},
-		}
+	}
+	mask_len := len(trans.remote_addr.IP) * 8
+	return []net.IPNet{
+		net.IPNet{trans.remote_addr.IP, net.CIDRMask(mask_len, mask_len)},
 	}
 }
 

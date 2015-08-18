@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-06-23
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-08-15
+* @Last Modified time: 2015-08-18
  */
 
 package tun
@@ -139,7 +139,7 @@ func (tun *_BaseTun) GetIPv4(typ int) (net.IP, error) {
 		return net.IP{}, fmt.Errorf("Invalid type %v", typ)
 	}
 	err := ioctl(cmd, uintptr(unsafe.Pointer(&ifreq)))
-	return net.IPv4(ifreq.address[0], ifreq.address[1], ifreq.address[2], ifreq.address[3]), err
+	return net.IP(ifreq.address[:]), err
 }
 
 func (tun *_BaseTun) SetIPv4(typ int, ip net.IP) error {
@@ -155,7 +155,11 @@ func (tun *_BaseTun) SetIPv4(typ int, ip net.IP) error {
 	}
 	ifreq := _IfReqIPv4{family: syscall.AF_INET}
 	copy(ifreq.name[:], tun.name)
-	copy(ifreq.address[:], ip.To4())
+	if ipv4 := ip.To4(); ipv4 == nil {
+		return fmt.Errorf("Invalid IPv4 Address %v", ip)
+	} else {
+		copy(ifreq.address[:], ipv4)
+	}
 	var cmd uintptr
 	switch typ {
 	case ADDRESS:

@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-07-18
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-08-14
+* @Last Modified time: 2015-08-18
  */
 
 package tun
@@ -89,9 +89,17 @@ func ApplyRouter(wire_rules, vpn_rules []net.IPNet,
 
 	rules := make([][]string, 0, len(wire_rules)+len(vpn_rules))
 	for _, wire_rule := range wire_rules {
+		if wire_rule.IP.To4() == nil {
+			log.WithField("net", wire_rule).Debug("Ignoring IPv6 rule")
+			continue
+		}
 		rules = append(rules, generateCMD(wire_rule, wire_gw, is_delete))
 	}
 	for _, vpn_rule := range vpn_rules {
+		if vpn_rule.IP.To4() == nil {
+			log.WithField("net", vpn_rule).Debug("Ignoring IPv6 rule")
+			continue
+		}
 		rules = append(rules, generateCMD(vpn_rule, vpn_gw, is_delete))
 	}
 
