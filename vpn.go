@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-06-24
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-08-15
+* @Last Modified time: 2015-08-21
  */
 
 package justvpn
@@ -61,38 +61,36 @@ type VPN struct {
 }
 
 func (vpn *VPN) initObfusecators() error {
-	vpn.obfusecators = make([]obfs.Obfusecator, len(vpn.options.Obfs))
 	vpn.tun_mtu = vpn.wire_min_mtu
-	for index, item := range vpn.options.Obfs {
-		var err error
-		vpn.obfusecators[index], err = obfs.New(item.Name, item.Options, vpn.tun_mtu)
+	for _, item := range vpn.options.Obfs {
+		obfusecator, err := obfs.New(item.Name, item.Options, vpn.tun_mtu)
 		if err != nil {
 			return fmt.Errorf("Error while allocating obfusecator %v: %v", item.Name, err)
 		}
-		obfs_max_plain_len := vpn.obfusecators[index].GetMaxPlainLength()
+		obfs_max_plain_len := obfusecator.GetMaxPlainLength()
 		log.WithFields(log.Fields{
 			"name": item.Name,
 			"old":  vpn.tun_mtu,
 			"new":  obfs_max_plain_len,
 		}).Debug("Updating MTU for obfusecator")
 		vpn.tun_mtu = obfs_max_plain_len
+		vpn.obfusecators = append(vpn.obfusecators, obfusecator)
 	}
 	return nil
 }
 
 func (vpn *VPN) initWireTransport() error {
-	vpn.wire_transports = make([]wire.Transport, len(vpn.options.Wires))
 	vpn.wire_min_mtu = -1
-	for index, item := range vpn.options.Wires {
-		var err error
-		vpn.wire_transports[index], err = wire.New(item.Name, vpn.is_server, item.Options)
+	for _, item := range vpn.options.Wires {
+		wire_trans, err := wire.New(item.Name, vpn.is_server, item.Options)
 		if err != nil {
 			return err
 		}
-		mtu := vpn.wire_transports[index].MTU()
+		mtu := wire_trans.MTU()
 		if vpn.wire_min_mtu == -1 || mtu < vpn.wire_min_mtu {
 			vpn.wire_min_mtu = mtu
 		}
+		vpn.wire_transports = append(vpn.wire_transports, wire_trans)
 	}
 	log.WithField("mtu", vpn.wire_min_mtu).Info("MTU for wire transport detected")
 	return nil
