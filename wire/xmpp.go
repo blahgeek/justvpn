@@ -34,6 +34,7 @@ type XMPPTransport struct {
 	mtu       int
 
 	logger *log.Entry
+	opt    XMPPTransportOptions
 }
 
 func (x *XMPPTransport) String() string {
@@ -44,8 +45,7 @@ func (x *XMPPTransport) Open(is_server bool, options json.RawMessage) error {
 	var err error
 	x.logger = log.WithField("logger", "XMPPTransport")
 
-	var opt XMPPTransportOptions
-	if err = json.Unmarshal(options, &opt); err != nil {
+	if err = json.Unmarshal(options, &x.opt); err != nil {
 		return err
 	}
 
@@ -55,32 +55,32 @@ func (x *XMPPTransport) Open(is_server bool, options json.RawMessage) error {
 	x.encoder = base64.StdEncoding
 
 	x.mtu = XMPP_DEFAULT_MTU
-	if opt.MTU > 0 {
-		x.mtu = int(opt.MTU)
+	if x.opt.MTU > 0 {
+		x.mtu = int(x.opt.MTU)
 	}
 
-	if len(opt.Host) == 0 {
-		opt.Host = "talk.renren.com:5222"
+	if len(x.opt.Host) == 0 {
+		x.opt.Host = "talk.renren.com:5222"
 	}
 
-	username := opt.ClientUsername
-	passwd := opt.ClientPassword
-	x.remote_id = opt.ServerUsername
+	username := x.opt.ClientUsername
+	passwd := x.opt.ClientPassword
+	x.remote_id = x.opt.ServerUsername
 	if is_server {
-		username = opt.ServerUsername
-		passwd = opt.ServerPassword
-		x.remote_id = opt.ClientUsername
+		username = x.opt.ServerUsername
+		passwd = x.opt.ServerPassword
+		x.remote_id = x.opt.ClientUsername
 	}
 
 	xmpp_opts := xmpp.Options{
-		Host:     opt.Host,
+		Host:     x.opt.Host,
 		User:     username,
 		Password: passwd,
 		NoTLS:    true,
 		Debug:    false,
 	}
 	x.logger.WithFields(log.Fields{
-		"server":    fmt.Sprintf("%s@%s", username, opt.Host),
+		"server":    fmt.Sprintf("%s@%s", username, x.opt.Host),
 		"remote_id": x.remote_id,
 	}).Info("Connecting to remote")
 	x.client, err = xmpp_opts.NewClient()
@@ -96,7 +96,21 @@ func (x *XMPPTransport) MTU() int {
 }
 
 func (x *XMPPTransport) GetWireNetworks() []net.IPNet {
-	return []net.IPNet{} // FIXME
+	hostname := strings.Split(x.opt.Host, ":")[0]
+	x.logger.WithField("hostname", hostname).
+		Debug("Looking up IP Address for XMPP Host")
+	ips, err := net.LookupIP(hostname)
+	if err != nil {
+		x.logger.WithField("error", err).
+			Warning("Error looking up IP Address for XMPP Host")
+		return []net.IPNet{}
+	}
+	var ret []net.IPNet
+	for _, ip := range ips {
+		mask_len := len(ip) * 8
+		ret = append(ret, net.IPNet{ip, net.CIDRMask(mask_len, mask_len)})
+	}
+	return ret
 }
 
 func (x *XMPPTransport) Close() error {

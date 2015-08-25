@@ -61,10 +61,10 @@ func (tun *LinuxTun) Down() error {
 }
 
 func (tun *LinuxTun) Destroy() error {
-    if err := tun.Down(); err != nil {
-        return err
-    }
-    return tun.Close()
+	if err := tun.Down(); err != nil {
+		return err
+	}
+	return tun.Close()
 }
 
 func (tun *LinuxTun) Read(buf []byte) (int, error) {
