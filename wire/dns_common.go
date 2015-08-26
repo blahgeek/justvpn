@@ -25,6 +25,8 @@ const (
 	DNS_MAX_NAME_LENGTH        = 255
 	DNS_MAX_TEXT_SINGLE_LENGTH = 255
 	DNS_MAX_TEXT_LENGTH        = 255
+
+	_DNS_MAX_PACKET_SIZE = 512
 )
 
 var _IN_TXT = []byte("\x00\x10\x00\x01")
@@ -111,6 +113,7 @@ func (p *DNSPacketFactory) readDomain(buf *bytes.Buffer) ([]byte, error) {
 
 func (p *DNSPacketFactory) MakeDNSQuery(id uint16, data []byte) []byte {
 	buf := new(bytes.Buffer)
+	buf.Grow(_DNS_MAX_PACKET_SIZE)
 
 	header := DNSHeader{Id: id, Qdcount: 1, Flag0: 0x01} // Recursive
 	binary.Write(buf, binary.BigEndian, header)
@@ -138,6 +141,7 @@ func (p *DNSPacketFactory) ParseDNSQuery(msg []byte) (uint16, []byte, error) {
 
 func (p *DNSPacketFactory) MakeDNSResult(id uint16, domain_data []byte, ttl uint32, data []byte) []byte {
 	buf := new(bytes.Buffer)
+	buf.Grow(_DNS_MAX_PACKET_SIZE)
 
 	header := DNSHeader{Id: id, Qdcount: 1, Ancount: 1, Flag0: 0x80} // Response
 	binary.Write(buf, binary.BigEndian, header)
@@ -176,8 +180,8 @@ func (p *DNSPacketFactory) ParseDNSResult(msg []byte) (uint16, []byte, error) {
 		return 0, nil, err
 	}
 
-	unused := make([]byte, 14)
-	if _, err := buf.Read(unused); err != nil || bytes.Compare(unused[4:6], _POINTER_TO_LABELS) != 0 {
+	var unused [14]byte
+	if _, err := buf.Read(unused[:]); err != nil || bytes.Compare(unused[4:6], _POINTER_TO_LABELS) != 0 {
 		return 0, nil, fmt.Errorf("Malformed pakcet")
 	}
 
