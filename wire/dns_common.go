@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-08-25
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-08-26
+* @Last Modified time: 2015-08-29
  */
 
 package wire
@@ -95,7 +95,7 @@ func (p *DNSPacketFactory) writeDomain(buf *bytes.Buffer, data []byte) {
 func (p *DNSPacketFactory) readDomain(buf *bytes.Buffer) ([]byte, error) {
 	domain_bytes, err := buf.ReadBytes(0x00)
 	base_domain_index := len(domain_bytes) - len(p.base_labels_bytes)
-	if err != nil || base_domain_index <= 0 {
+	if err != nil || base_domain_index < 0 {
 		return nil, fmt.Errorf("Malformed dns packet")
 	}
 	if bytes.Compare(domain_bytes[base_domain_index:], p.base_labels_bytes) != 0 {
