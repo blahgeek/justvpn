@@ -136,6 +136,12 @@ func (p *DNSPacketFactory) ParseDNSQuery(msg []byte) (uint16, []byte, error) {
 	if err != nil || len(data) == 0 {
 		return 0, nil, fmt.Errorf("Error parsing DNS query: %v", err)
 	}
+
+	var in_txt [4]byte
+	buf.Read(in_txt[:])
+	if bytes.Compare(in_txt[:], _IN_TXT) != 0 {
+		return 0, nil, fmt.Errorf("Not IN TXT query")
+	}
 	return header.Id, data, nil
 }
 
