@@ -2,206 +2,176 @@
 * @Author: BlahGeek
 * @Date:   2015-08-25
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-08-29
+* @Last Modified time: 2015-09-14
  */
 
 package wire
 
-import "encoding/binary"
-import "bytes"
 import "fmt"
-import "math"
-import "strings"
-import log "github.com/Sirupsen/logrus"
+import "encoding/binary"
+import "encoding/base32"
+import "github.com/miekg/dns"
 
-type DNSHeader struct {
-	Id                                 uint16
-	Flag0, Flag1                       uint8
-	Qdcount, Ancount, Nscount, Arcount uint16
+// 32-bit Seq: (31 downto 5): seq, (4 downto 1): fragment No., (0): more fragment
+const DNS_UPSTREAM_SEQ_FRAGMENT_BIT = 4 // 16 fragments at most
+const DNS_UPSTREAM_MAX_FRAGMENT = 16
+
+const DNS_UPSTREAM_WINDOW_SIZE = 64
+
+const DNS_MAX_BITS_PER_LABEL = 35 // base32, max 63 char per label
+
+type DNSTransportUtility struct {
+	Domain        string
+	domain_labels int
+
+	MaxBitsPerName int
+
+	upstream_seq uint32
+
+	upstream_recv_window [DNS_UPSTREAM_WINDOW_SIZE]struct {
+		in_use         bool
+		seq            uint32
+		fragments      [DNS_UPSTREAM_MAX_FRAGMENT][]byte
+		fragments_bits uint32
+		fragment_count uint32
+	}
 }
 
-const (
-	DNS_MAX_LABEL_LENGTH       = 63
-	DNS_MAX_NAME_LENGTH        = 255
-	DNS_MAX_TEXT_SINGLE_LENGTH = 255
-	DNS_MAX_TEXT_LENGTH        = 255
+func NewDNSTransportUtility(domain string) (*DNSTransportUtility, error) {
+	ret := DNSTransportUtility{Domain: domain + "."}
 
-	_DNS_MAX_PACKET_SIZE = 512
-)
+	var ok bool
+	if ret.domain_labels, ok = dns.IsDomainName(ret.Domain); !ok {
+		return nil, fmt.Errorf("Bad base domain %s", domain)
+	}
 
-var _IN_TXT = []byte("\x00\x10\x00\x01")
-var _POINTER_TO_LABELS = []byte("\xc0\x0c")
+	name_len := 255 - len(ret.Domain)
+	name_len -= 9 // seq number (4 byte -> 8 byte) + '.'
 
-type DNSPacketFactory struct {
-	base_labels         [][]byte
-	base_labels_bytes   []byte
-	max_domain_data_len int
+	ret.MaxBitsPerName = name_len / 64 * DNS_MAX_BITS_PER_LABEL
+	if tmp := name_len % 64; tmp > 9 {
+		ret.MaxBitsPerName += (tmp - 1) / 8 * 5
+	}
 
-	logger *log.Entry
+	return &ret, nil
 }
 
-func NewDNSPacketFactory(base_domain string) (*DNSPacketFactory, error) {
-	ret := new(DNSPacketFactory)
-	ret.logger = log.WithField("logger", "DNSPacketFactory")
+func (x *DNSTransportUtility) EncodeUpstreamSingle(msg []byte,
+	segment uint32, more_segment bool) string {
 
-	base_labels_len := 0
-	for _, label_str := range strings.Split(base_domain, ".") {
-		if len(label_str) == 0 {
-			continue
+	seq_uint32 := uint32(x.upstream_seq << (DNS_UPSTREAM_SEQ_FRAGMENT_BIT + 1))
+	seq_uint32 |= (segment << 1)
+	if more_segment {
+		seq_uint32 |= 0x1
+	}
+	var seq_bytes [4]byte
+	binary.BigEndian.PutUint32(seq_bytes[:], seq_uint32)
+
+	ret := base32.StdEncoding.EncodeToString(seq_bytes[:])
+
+	for i := 0; i < len(msg); i += DNS_MAX_BITS_PER_LABEL {
+		j := i + DNS_MAX_BITS_PER_LABEL
+		if j > len(msg) {
+			j = len(msg)
 		}
-		if len(label_str) > DNS_MAX_LABEL_LENGTH {
-			return nil, fmt.Errorf("Domain label too long: %v", label_str)
+		ret += "." + base32.StdEncoding.EncodeToString(msg[i:j])
+	}
+	ret += "." + x.Domain
+	return ret
+}
+
+func (x *DNSTransportUtility) EncodeUpstream(msg []byte) []string {
+	var ret []string
+	var segment uint32 = 0
+	for i := 0; i < len(msg); i += x.MaxBitsPerName {
+		j := i + x.MaxBitsPerName
+		if j > len(msg) {
+			j = len(msg)
 		}
-		ret.base_labels = append(ret.base_labels, []byte(label_str))
-		base_labels_len += len(label_str) + 1
+		ret = append(ret, x.EncodeUpstreamSingle(msg[i:j], segment, j != len(msg)))
+		segment += 1
 	}
-	ret.max_domain_data_len = DNS_MAX_NAME_LENGTH - base_labels_len -
-		int(math.Ceil(float64(base_labels_len)/DNS_MAX_LABEL_LENGTH))
-	if ret.max_domain_data_len < 16 {
-		return nil, fmt.Errorf("Base domain too long: %v", base_domain)
-	}
-
-	buf := new(bytes.Buffer)
-	for _, label := range ret.base_labels {
-		buf.WriteByte(byte(len(label)))
-		buf.Write(label)
-	}
-	buf.WriteByte(0x00)
-	ret.base_labels_bytes = buf.Bytes()
-
-	ret.logger.WithFields(log.Fields{
-		"domain":              base_domain,
-		"max_domain_data_len": ret.max_domain_data_len,
-	}).Debug("DNSPacketFactory inited")
-
-	return ret, nil
+	x.upstream_seq += 1
+	return ret
 }
 
-func (p *DNSPacketFactory) writeDomain(buf *bytes.Buffer, data []byte) {
-	if len(data) > p.max_domain_data_len {
-		data = data[:p.max_domain_data_len]
+func (x *DNSTransportUtility) DecodeUpstreamSingle(msg string) ([]byte, uint32, uint32, bool) {
+	var ret []byte
+
+	labels := dns.SplitDomainName(msg)
+	if len(labels) <= 1+x.domain_labels {
+		return nil, 0, 0, false
 	}
-	for i := 0; i < len(data); i += DNS_MAX_LABEL_LENGTH {
-		_end := i + DNS_MAX_LABEL_LENGTH
-		if _end > len(data) {
-			_end = len(data)
+
+	var seq uint32
+	if seq_bytes, err := base32.StdEncoding.DecodeString(labels[0]); err == nil {
+		seq = binary.BigEndian.Uint32(seq_bytes)
+	} else {
+		return nil, 0, 0, false
+	}
+
+	labels = labels[1 : len(labels)-x.domain_labels]
+
+	for _, label := range labels {
+		data, err := base32.StdEncoding.DecodeString(label)
+		if err == nil {
+			ret = append(ret, data...)
 		}
-		buf.WriteByte(byte(_end - i))
-		buf.Write(data[i:_end])
 	}
-	buf.Write(p.base_labels_bytes)
+
+	var more_fragment bool = ((seq & 0x01) == 1)
+	return ret,
+		seq >> (DNS_UPSTREAM_SEQ_FRAGMENT_BIT + 1),
+		(seq & ((1 << (DNS_UPSTREAM_SEQ_FRAGMENT_BIT + 1)) - 1)) >> 1,
+		more_fragment
 }
 
-func (p *DNSPacketFactory) readDomain(buf *bytes.Buffer) ([]byte, error) {
-	domain_bytes, err := buf.ReadBytes(0x00)
-	base_domain_index := len(domain_bytes) - len(p.base_labels_bytes)
-	if err != nil || base_domain_index < 0 {
-		return nil, fmt.Errorf("Malformed dns packet")
+// return x < y
+func _cmp_seq(x, y uint32) bool {
+	max_div_2 := (((1 << (32 - 1 - DNS_UPSTREAM_SEQ_FRAGMENT_BIT)) - 1) >> 1)
+	if (y > x && int(y-x) < max_div_2) || (y < x && int(x-y) > max_div_2) {
+		return true
+	} else {
+		return false
 	}
-	if bytes.Compare(domain_bytes[base_domain_index:], p.base_labels_bytes) != 0 {
-		return nil, fmt.Errorf("Base domain does not match: %v", string(domain_bytes))
-	}
-
-	ret := make([]byte, 0, base_domain_index)
-	for i := 0; i+1 < base_domain_index; {
-		_len := int(domain_bytes[i])
-		ret = append(ret, domain_bytes[i+1:i+1+_len]...)
-		i += (1 + _len)
-	}
-	return ret, nil
 }
 
-func (p *DNSPacketFactory) MakeDNSQuery(id uint16, data []byte) []byte {
-	buf := new(bytes.Buffer)
-	buf.Grow(_DNS_MAX_PACKET_SIZE)
-
-	header := DNSHeader{Id: id, Qdcount: 1, Flag0: 0x01} // Recursive
-	binary.Write(buf, binary.BigEndian, header)
-
-	p.writeDomain(buf, data)
-	buf.Write(_IN_TXT)
-	return buf.Bytes()
-}
-
-func (p *DNSPacketFactory) ParseDNSQuery(msg []byte) (uint16, []byte, error) {
-	var header DNSHeader
-	buf := bytes.NewBuffer(msg)
-	if err := binary.Read(buf, binary.BigEndian, &header); err != nil {
-		return 0, nil, err
-	}
-	if header.Qdcount != 1 {
-		return 0, nil, fmt.Errorf("DNSQuery.Qdcount != 1")
-	}
-	data, err := p.readDomain(buf)
-	if err != nil || len(data) == 0 {
-		return 0, nil, fmt.Errorf("Error parsing DNS query: %v", err)
+// return nil if no whole packet is available
+func (x *DNSTransportUtility) DecodeUpstream(msg string) []byte {
+	dat, seq, frag, more_frag := x.DecodeUpstreamSingle(msg)
+	if dat == nil {
+		return nil
 	}
 
-	var in_txt [4]byte
-	buf.Read(in_txt[:])
-	if bytes.Compare(in_txt[:], _IN_TXT) != 0 {
-		return 0, nil, fmt.Errorf("Not IN TXT query")
+	box := &x.upstream_recv_window[seq%DNS_UPSTREAM_WINDOW_SIZE]
+	if box.in_use && _cmp_seq(seq, box.seq) {
+		// this packet is too late
+		return nil
 	}
-	return header.Id, data, nil
-}
+	if box.in_use && seq == box.seq && (box.fragments_bits&(1<<frag)) != 0 {
+		return nil
+	}
+	if !box.in_use || box.seq != seq {
+		// clear this box
+		box.in_use = true
+		box.seq = seq
+		box.fragments_bits = 0
+		box.fragment_count = 0
+	}
+	box.fragments_bits |= (1 << frag)
+	box.fragments[frag] = dat
+	if !more_frag {
+		box.fragment_count = frag + 1
+	}
 
-func (p *DNSPacketFactory) MakeDNSResult(id uint16, domain_data []byte, ttl uint32, data []byte) []byte {
-	buf := new(bytes.Buffer)
-	buf.Grow(_DNS_MAX_PACKET_SIZE)
-
-	header := DNSHeader{Id: id, Qdcount: 1, Ancount: 1, Flag0: 0x80} // Response
-	binary.Write(buf, binary.BigEndian, header)
-
-	p.writeDomain(buf, domain_data)
-	buf.Write(_IN_TXT)
-
-	buf.Write(_POINTER_TO_LABELS)
-	buf.Write(_IN_TXT)
-	binary.Write(buf, binary.BigEndian, ttl)
-
-	data_len := len(data) + int(math.Ceil(float64(len(data))/DNS_MAX_TEXT_SINGLE_LENGTH))
-	binary.Write(buf, binary.BigEndian, uint16(data_len))
-	for i := 0; i < len(data); i += DNS_MAX_TEXT_SINGLE_LENGTH {
-		_end := i + DNS_MAX_TEXT_SINGLE_LENGTH
-		if _end > len(data) {
-			_end = len(data)
+	var ret []byte
+	if box.fragment_count != 0 && ((1<<box.fragment_count)-1) == box.fragments_bits {
+		// all fragments is here
+		for i := 0; i < int(box.fragment_count); i += 1 {
+			ret = append(ret, box.fragments[i]...)
 		}
-		buf.WriteByte(byte(_end - i))
-		buf.Write(data[i:_end])
-	}
-	return buf.Bytes()
-}
-
-func (p *DNSPacketFactory) ParseDNSResult(msg []byte) (uint16, []byte, error) {
-	buf := bytes.NewBuffer(msg)
-
-	var header DNSHeader
-	if err := binary.Read(buf, binary.BigEndian, &header); err != nil {
-		return 0, nil, err
-	}
-	if header.Ancount != 1 {
-		return 0, nil, fmt.Errorf("DNSQuery.Ancount != 1")
-	}
-	if _, err := p.readDomain(buf); err != nil {
-		return 0, nil, err
+		box.in_use = false
 	}
 
-	var unused [14]byte
-	if _, err := buf.Read(unused[:]); err != nil || bytes.Compare(unused[4:6], _POINTER_TO_LABELS) != 0 {
-		return 0, nil, fmt.Errorf("Malformed pakcet")
-	}
-
-	var data_len uint16
-	if err := binary.Read(buf, binary.BigEndian, &data_len); err != nil || data_len <= 1 {
-		return 0, nil, fmt.Errorf("Malformed packet")
-	}
-	ret := make([]byte, 0, data_len)
-	for i := 0; i < int(data_len); {
-		this_len, _ := buf.ReadByte()
-		this_txt := make([]byte, int(this_len))
-		buf.Read(this_txt)
-		ret = append(ret, this_txt...)
-		i += int(this_len) + 1
-	}
-	return header.Id, ret, nil
+	return ret
 }

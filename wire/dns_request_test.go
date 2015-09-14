@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-08-29
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-08-29
+* @Last Modified time: 2015-09-13
  */
 
 package wire
@@ -10,44 +10,44 @@ package wire
 import "testing"
 import "fmt"
 import "sync"
-import "net"
+import "strings"
 
-func makeDnsRequest(domain string, server *net.UDPAddr) (string, error) {
-	fac, err := NewDNSPacketFactory(domain)
-	if err != nil {
+import "github.com/miekg/dns"
+
+func makeDnsTxtRequest(domain string, server string) (string, error) {
+	var err error
+	var conn *dns.Conn
+	if conn, err = dns.Dial("udp", server); err != nil {
 		return "", err
 	}
-	query := fac.MakeDNSQuery(0xDEAD, nil)
 
-	var conn *net.UDPConn
-	conn, err = net.DialUDP("udp", nil, server)
-	if err != nil {
+	m := new(dns.Msg)
+	m.SetQuestion(dns.Fqdn(domain), dns.TypeTXT)
+	m.RecursionDesired = true
+
+	if err = conn.WriteMsg(m); err != nil {
 		return "", err
 	}
-	if wlen, e := conn.Write(query); wlen != len(query) || e != nil {
-		return "", fmt.Errorf("UDP Write Error: %v", e)
-	}
-	result := make([]byte, DNS_MAX_TEXT_LENGTH+100)
-	if _, e := conn.Read(result); e != nil {
-		return "", fmt.Errorf("UDP Read error: %v", e)
+
+	var rm *dns.Msg
+	if rm, err = conn.ReadMsg(); err != nil {
+		return "", err
 	}
 
-	id, data, e := fac.ParseDNSResult(result)
-	if e != nil {
-		return "", e
+	if txt, ok := rm.Answer[0].(*dns.TXT); !ok {
+		return "", fmt.Errorf("No TXT Answer")
+	} else {
+		return strings.Join(txt.Txt, ""), nil
 	}
-	if id != 0xDEAD {
-		return "", fmt.Errorf("ID not match")
-	}
-	return string(data), nil
+
 }
 
 func TestDnsRequest(t *testing.T) {
 	var waiter sync.WaitGroup
 
-	addr, _ := net.ResolveUDPAddr("udp", "166.111.8.28:53")
+	addr := "166.111.8.28:53"
 	do_req := func(domain, result string) {
-		if ret, err := makeDnsRequest(domain, addr); err != nil {
+		if ret, err := makeDnsTxtRequest(domain, addr); err != nil {
 			t.Errorf("Requesting DNS for %v error: %v", domain, err)
 		} else {
 			t.Logf("TXT fot %v: %v", domain, ret)
