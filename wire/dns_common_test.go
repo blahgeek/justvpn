@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-08-25
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-09-14
+* @Last Modified time: 2015-09-17
  */
 
 package wire
@@ -21,10 +21,11 @@ func TestDNSUpstreamEncoding(t *testing.T) {
 		t.Errorf("Bad domain not detected: %v", bad_domain)
 	}
 
-	utility, err := NewDNSTransportUtility("blahgeek.com")
+	codec, err := NewDNSTransportUpstreamCodec("blahgeek.com")
 	if err != nil {
-		t.Fatalf("Unable to build utility: %v", err)
+		t.Fatalf("Unable to build codec: %v", err)
 	}
+	streamer := DNSTransportStream{codec: codec}
 
 	random := rand.New(rand.NewSource(0))
 	for i := 0; i < 1500; i += 1 {
@@ -33,13 +34,13 @@ func TestDNSUpstreamEncoding(t *testing.T) {
 			msg = append(msg, byte(random.Int()&0xff))
 		}
 		var decoded_msg []byte
-		upstreams := utility.EncodeUpstream(msg)
+		upstreams := streamer.Encode(msg)
 		for _, d := range upstreams {
 			t.Logf("Encoded domain for msg length %v: %v", i, d)
 			if _, good := dns.IsDomainName(d); !good {
 				t.Errorf("Bad domain for msg length %v", i)
 			}
-			decoded_msg = utility.DecodeUpstream(d)
+			decoded_msg = streamer.Decode(d)
 		}
 		if bytes.Compare(decoded_msg, msg) != 0 {
 			t.Errorf("Decoded msg != msg")
