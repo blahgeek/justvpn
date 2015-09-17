@@ -48,6 +48,30 @@ func TestDNSUpstreamEncoding(t *testing.T) {
 	}
 }
 
+func TestDNSDownstreamEncoding(t *testing.T) {
+	streamer := DNSTransportStream{codec: &DNSTransportDownstreamCodec{}}
+
+	random := rand.New(rand.NewSource(0))
+	for i := 0; i < 1500; i += 1 {
+		var msg []byte
+		for j := 0; j < i; j += 1 {
+			msg = append(msg, byte(random.Int()&0xff))
+		}
+		var decoded_msg []byte
+		upstreams := streamer.Encode(msg)
+		for _, d := range upstreams {
+			t.Logf("Encoded TXT for msg length %v: %v", i, d)
+			if len(d) > DNS_MAX_TXT_LENGTH {
+				t.Errorf("TXT too long for msg length %v", i)
+			}
+			decoded_msg = streamer.Decode(d)
+		}
+		if bytes.Compare(decoded_msg, msg) != 0 {
+			t.Errorf("Decoded msg != msg")
+		}
+	}
+}
+
 func TestDNSCmpSeq(t *testing.T) {
 	if !_cmp_seq(1, 2) {
 		t.Errorf("1 < 2")

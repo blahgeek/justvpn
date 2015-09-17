@@ -10,6 +10,7 @@ package wire
 import "fmt"
 import "encoding/binary"
 import "encoding/base32"
+import "encoding/ascii85"
 import "github.com/miekg/dns"
 
 // 32-bit Seq: (31 downto 5): seq, (4 downto 1): fragment No., (0): more fragment
@@ -35,18 +36,12 @@ func encode_seq(seq uint32, segment uint32, more_segment bool) [4]byte {
 	return ret
 }
 
-func decode_seq(label string) (uint32, uint32, bool, error) {
-	var seq uint32
-	if seq_bytes, err := base32.StdEncoding.DecodeString(label); err == nil {
-		seq = binary.BigEndian.Uint32(seq_bytes)
-	} else {
-		return 0, 0, false, err
-	}
-
+func decode_seq(seq_bytes []byte) (uint32, uint32, bool) {
+	seq := binary.BigEndian.Uint32(seq_bytes)
 	var more_fragment bool = ((seq & 0x01) == 1)
 	return seq >> (DNS_FRAGMENT_BIT + 1),
 		(seq & ((1 << (DNS_FRAGMENT_BIT + 1)) - 1)) >> 1,
-		more_fragment, nil
+		more_fragment
 }
 
 const DNS_UPSTREAM_MAX_LEN_PER_LABEL = 35
@@ -100,10 +95,11 @@ func (x *DNSTransportUpstreamCodec) Decode(msg string) ([]byte, uint32, uint32, 
 		return nil, 0, 0, false
 	}
 
-	seq, fragment, more_fragment, err := decode_seq(labels[0])
+	seq_bytes, err := base32.StdEncoding.DecodeString(labels[0])
 	if err != nil {
 		return nil, 0, 0, false
 	}
+	seq, fragment, more_fragment := decode_seq(seq_bytes)
 
 	labels = labels[1 : len(labels)-x.domain_label_count]
 	for _, label := range labels {
@@ -114,6 +110,46 @@ func (x *DNSTransportUpstreamCodec) Decode(msg string) ([]byte, uint32, uint32, 
 		}
 	}
 	return ret, seq, fragment, more_fragment
+}
+
+const DNS_MAX_TXT_LENGTH = 255
+
+type DNSTransportDownstreamCodec struct{}
+
+func (x *DNSTransportDownstreamCodec) GetMaxLength() int {
+	// ascii85
+	return (DNS_MAX_TXT_LENGTH - 5) / 5 * 4 // 5 byte for seq
+}
+
+func (x *DNSTransportDownstreamCodec) Encode(msg []byte,
+	seq uint32, segment uint32, more_segment bool) string {
+
+	seq_bytes := encode_seq(seq, segment, more_segment)
+	dst := make([]byte, ascii85.MaxEncodedLen(4+len(msg)))
+
+	ret_len := ascii85.Encode(dst[0:5], seq_bytes[:])
+	ret_len += ascii85.Encode(dst[5:], msg)
+
+	return string(dst[:ret_len])
+}
+
+func (x *DNSTransportDownstreamCodec) Decode(msg string) ([]byte, uint32, uint32, bool) {
+	src := []byte(msg)
+	var seq_bytes [4]byte
+
+	ndst, _, err := ascii85.Decode(seq_bytes[:], src[0:5], true)
+	if ndst != 4 || err != nil {
+		return nil, 0, 0, false
+	}
+	seq, fragment, more_fragment := decode_seq(seq_bytes[:])
+
+	ret := make([]byte, len(msg)/5*4)
+	ndst, _, err = ascii85.Decode(ret, src[5:], true)
+	if err != nil {
+		return nil, 0, 0, false
+	}
+
+	return ret[:ndst], seq, fragment, more_fragment
 }
 
 const DNS_STREAM_WINDOW_SIZE = 64
