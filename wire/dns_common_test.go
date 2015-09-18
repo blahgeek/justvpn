@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-08-25
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-09-17
+* @Last Modified time: 2015-09-18
  */
 
 package wire
@@ -11,6 +11,8 @@ import "bytes"
 import "encoding/base32"
 import "testing"
 import "math/rand"
+import "time"
+import "sync"
 import "github.com/miekg/dns"
 
 func TestDNSUpstreamEncoding(t *testing.T) {
@@ -27,11 +29,10 @@ func TestDNSUpstreamEncoding(t *testing.T) {
 	}
 	streamer := DNSTransportStream{codec: codec}
 
-	random := rand.New(rand.NewSource(0))
 	for i := 0; i < 1500; i += 1 {
 		var msg []byte
 		for j := 0; j < i; j += 1 {
-			msg = append(msg, byte(random.Int()&0xff))
+			msg = append(msg, byte(rand.Int()&0xff))
 		}
 		var decoded_msg []byte
 		upstreams := streamer.Encode(msg)
@@ -51,11 +52,10 @@ func TestDNSUpstreamEncoding(t *testing.T) {
 func TestDNSDownstreamEncoding(t *testing.T) {
 	streamer := DNSTransportStream{codec: &DNSTransportDownstreamCodec{}}
 
-	random := rand.New(rand.NewSource(0))
 	for i := 0; i < 1500; i += 1 {
 		var msg []byte
 		for j := 0; j < i; j += 1 {
-			msg = append(msg, byte(random.Int()&0xff))
+			msg = append(msg, byte(rand.Int()&0xff))
 		}
 		var decoded_msg []byte
 		upstreams := streamer.Encode(msg)
@@ -68,6 +68,70 @@ func TestDNSDownstreamEncoding(t *testing.T) {
 		}
 		if bytes.Compare(decoded_msg, msg) != 0 {
 			t.Errorf("Decoded msg != msg")
+		}
+	}
+}
+
+func TestDNSStream(t *testing.T) {
+	streamer := DNSTransportStream{codec: &DNSTransportDownstreamCodec{}}
+	pipe_in := make(chan string, 64)
+	pipe_out := make(chan string, 64)
+	var pipes_waiter sync.WaitGroup
+
+	pipe_transfer := func() {
+		for {
+			msg, ok := <-pipe_in
+			if !ok {
+				break
+			}
+			time.Sleep((time.Duration)(rand.Int()%1000) * time.Microsecond)
+			pipe_out <- msg
+			if rand.Int()%4 == 0 {
+				pipe_out <- msg
+				// duplicate
+			}
+		}
+		pipes_waiter.Done()
+	}
+
+	for i := 0; i < 64; i += 1 {
+		pipes_waiter.Add(1)
+		go pipe_transfer()
+	}
+	go func() {
+		pipes_waiter.Wait()
+		close(pipe_out)
+	}()
+
+	var msgs [][]byte
+	for i := 0; i < 1024; i += 1 {
+		msg_len := rand.Int() % 1500
+		msgs = append(msgs, make([]byte, msg_len))
+		for j := 0; j < msg_len; j += 1 {
+			msgs[i][j] = byte(rand.Int() & 0xff)
+		}
+	}
+
+	go func() {
+		for _, msg := range msgs {
+			encoded := streamer.Encode(msg)
+			for _, x := range encoded {
+				pipe_in <- x
+			}
+		}
+		close(pipe_in)
+	}()
+
+	decoded_count := 0
+	for {
+		msg, ok := <-pipe_out
+		if !ok {
+			break
+		}
+		ret := streamer.Decode(msg)
+		if ret != nil {
+			t.Logf("Decoded msg, count = %v", decoded_count)
+			decoded_count += 1
 		}
 	}
 }
