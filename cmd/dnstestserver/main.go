@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-08-29
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-08-29
+* @Last Modified time: 2015-09-18
  */
 
 package main
@@ -10,6 +10,7 @@ package main
 import "fmt"
 import "flag"
 import "net"
+import "github.com/miekg/dns"
 import "github.com/blahgeek/justvpn/wire"
 
 func main() {
@@ -19,34 +20,39 @@ func main() {
 
 	fmt.Printf("Serving for %v at port %v\n", *domain, *port)
 
-	conn, err := net.ListenUDP("udp",
+	udp_conn, err := net.ListenUDP("udp",
 		&net.UDPAddr{IP: net.IPv4(0, 0, 0, 0), Port: *port})
 	if err != nil {
 		fmt.Printf("Unable to listen on %v: %v\n", *port, err)
 		return
 	}
-
-	var fac *wire.DNSPacketFactory
-	fac, err = wire.NewDNSPacketFactory(*domain)
-	if err != nil {
-		fmt.Printf("New DNS Packet factory error: %v\n", err)
-		return
-	}
+	conn := wire.DNSUDPConn{udp_conn}
 
 	for {
-		var in_bytes [1500]byte
-		var in_addr *net.UDPAddr
-		if _, in_addr, err = conn.ReadFromUDP(in_bytes[:]); err != nil {
-			fmt.Printf("Read from UDP error: %v\n", err)
-			break
+		query, addr, e := conn.ReadDNSFromUDP()
+		if e != nil {
+			fmt.Printf("Read query error: %v\n", err)
+			continue
 		}
-		if id, data, e := fac.ParseDNSQuery(in_bytes[:]); e != nil {
-			fmt.Printf("Parse DNS Query error: %v\n", e)
-			break
-		} else {
-			fmt.Printf("Got query: %v, id = %v\n", string(data), id)
-			result := fac.MakeDNSResult(id, data, 600, data)
-			conn.WriteToUDP(result, in_addr)
+		fmt.Printf("Query from %v: %v\n", addr, query)
+
+		if len(query.Question) != 1 || query.Question[0].Qtype != dns.TypeTXT {
+			fmt.Printf("Invalid query\n")
+			continue
 		}
+
+		txt := new(dns.TXT)
+		txt.Hdr = dns.RR_Header{Name: query.Question[0].Name, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: 0}
+		txt.Txt = []string{query.String()}
+		reply := new(dns.Msg)
+		reply.SetReply(query)
+		reply.Answer = append(reply.Answer, txt)
+
+		e = conn.WriteDNSToUDP(reply, addr)
+		if e != nil {
+			fmt.Printf("Write reply error: %v\n", e)
+			continue
+		}
+
 	}
 }

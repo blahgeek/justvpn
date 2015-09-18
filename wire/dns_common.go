@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-08-25
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-09-17
+* @Last Modified time: 2015-09-18
  */
 
 package wire
@@ -12,6 +12,35 @@ import "encoding/binary"
 import "encoding/base32"
 import "encoding/ascii85"
 import "github.com/miekg/dns"
+import "net"
+
+const DNS_MAX_UDP_SIZE = 1500
+
+type DNSUDPConn struct {
+	*net.UDPConn
+}
+
+func (conn *DNSUDPConn) WriteDNSToUDP(m *dns.Msg, addr *net.UDPAddr) error {
+	out, err := m.Pack()
+	if err != nil {
+		return err
+	}
+	_, err = conn.WriteToUDP(out, addr)
+	return err
+}
+
+func (conn *DNSUDPConn) ReadDNSFromUDP() (*dns.Msg, *net.UDPAddr, error) {
+	buf := make([]byte, DNS_MAX_UDP_SIZE)
+	rdlen, addr, err := conn.ReadFromUDP(buf)
+	if rdlen == 0 || err != nil {
+		return nil, nil, fmt.Errorf("Error reading from UDP: %v", err)
+	}
+	m := new(dns.Msg)
+	if err = m.Unpack(buf[:rdlen]); err != nil {
+		return nil, nil, err
+	}
+	return m, addr, nil
+}
 
 // 32-bit Seq: (31 downto 5): seq, (4 downto 1): fragment No., (0): more fragment
 const DNS_FRAGMENT_BIT = 4
