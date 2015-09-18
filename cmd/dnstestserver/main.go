@@ -43,7 +43,7 @@ func main() {
 
 		txt := new(dns.TXT)
 		txt.Hdr = dns.RR_Header{Name: query.Question[0].Name, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: 0}
-		txt.Txt = []string{query.String()}
+		txt.Txt = []string{addr.String()}
 		reply := new(dns.Msg)
 		reply.SetReply(query)
 		reply.Answer = append(reply.Answer, txt)
