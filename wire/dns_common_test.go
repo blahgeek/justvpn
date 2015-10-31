@@ -2,7 +2,7 @@
 * @Author: BlahGeek
 * @Date:   2015-08-25
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-09-18
+* @Last Modified time: 2015-10-31
  */
 
 package wire
@@ -50,7 +50,7 @@ func TestDNSUpstreamEncoding(t *testing.T) {
 }
 
 func TestDNSDownstreamEncoding(t *testing.T) {
-	streamer := DNSTransportStream{codec: &DNSTransportDownstreamCodec{}}
+	streamer := DNSTransportStream{codec: NewDNSTransportDownstreamCodec()}
 
 	for i := 0; i < 1500; i += 1 {
 		var msg []byte
@@ -73,7 +73,7 @@ func TestDNSDownstreamEncoding(t *testing.T) {
 }
 
 func TestDNSStream(t *testing.T) {
-	streamer := DNSTransportStream{codec: &DNSTransportDownstreamCodec{}}
+	streamer := DNSTransportStream{codec: NewDNSTransportDownstreamCodec()}
 	pipe_in := make(chan string, 64)
 	pipe_out := make(chan string, 64)
 	var pipes_waiter sync.WaitGroup

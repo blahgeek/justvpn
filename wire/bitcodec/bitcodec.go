@@ -8,6 +8,7 @@
 package bitcodec
 
 import "reflect"
+import "encoding/binary"
 import "strconv"
 import log "github.com/Sirupsen/logrus"
 
@@ -48,7 +49,7 @@ func NewBitcodec(v interface{}) *Bitcodec {
 		}
 	}
 
-	if total_bits >= 32 {
+	if total_bits > 32 {
 		codec.logger.WithField("type", reflect.TypeOf(v)).Panic("Unable to build bitcodec")
 		return nil
 	}
@@ -70,6 +71,12 @@ func (codec *Bitcodec) Encode(v interface{}) uint32 {
 	return ret
 }
 
+func (codec *Bitcodec) EncodeToBytes(v interface{}) [4]byte {
+	var ret [4]byte
+	binary.BigEndian.PutUint32(ret[:], codec.Encode(v))
+	return ret
+}
+
 func (codec *Bitcodec) Decode(v uint32, p interface{}) {
 	val := reflect.ValueOf(p).Elem()
 
@@ -79,4 +86,9 @@ func (codec *Bitcodec) Decode(v uint32, p interface{}) {
 		valueField.SetUint(uint64(v & codec.field_masks[i]))
 		v >>= codec.field_bits[i]
 	}
+}
+
+func (codec *Bitcodec) DecodeFromBytes(v []byte, p interface{}) {
+	val := binary.BigEndian.Uint32(v)
+	codec.Decode(val, p)
 }

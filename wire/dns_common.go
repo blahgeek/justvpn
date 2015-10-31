@@ -2,17 +2,17 @@
 * @Author: BlahGeek
 * @Date:   2015-08-25
 * @Last Modified by:   BlahGeek
-* @Last Modified time: 2015-09-18
+* @Last Modified time: 2015-10-31
  */
 
 package wire
 
 import "fmt"
-import "encoding/binary"
 import "encoding/base32"
 import "encoding/ascii85"
 import "github.com/miekg/dns"
 import "net"
+import "github.com/blahgeek/justvpn/wire/bitcodec"
 
 const DNS_MAX_UDP_SIZE = 1500
 
@@ -42,35 +42,21 @@ func (conn *DNSUDPConn) ReadDNSFromUDP() (*dns.Msg, *net.UDPAddr, error) {
 	return m, addr, nil
 }
 
-// 32-bit Seq: (31 downto 5): seq, (4 downto 1): fragment No., (0): more fragment
+type DNSCodecHeader struct {
+	Seq            uint32 `bits:"27"`
+	FragmentNumber uint32 `bits:"4"`
+	MoreFragment   byte   `bits:"1"`
+}
+
 const DNS_FRAGMENT_BIT = 4
 const DNS_MAX_FRAGMENTS = 16
 
 type DNSTransportCodec interface {
-	Encode(msg []byte, seq uint32, segment uint32, more_segment bool) string
+	Encode(msg []byte, header DNSCodecHeader) string
 	// Decode an encoded message, return raw message, seq No., frag, more_frag
-	Decode(msg string) ([]byte, uint32, uint32, bool)
+	Decode(msg string) ([]byte, DNSCodecHeader)
 	// Get max length of raw message per packet
 	GetMaxLength() int
-}
-
-func encode_seq(seq uint32, segment uint32, more_segment bool) [4]byte {
-	var ret [4]byte
-	ret_uint32 := uint32(seq << (DNS_FRAGMENT_BIT + 1))
-	ret_uint32 |= (segment << 1)
-	if more_segment {
-		ret_uint32 |= 0x01
-	}
-	binary.BigEndian.PutUint32(ret[:], ret_uint32)
-	return ret
-}
-
-func decode_seq(seq_bytes []byte) (uint32, uint32, bool) {
-	seq := binary.BigEndian.Uint32(seq_bytes)
-	var more_fragment bool = ((seq & 0x01) == 1)
-	return seq >> (DNS_FRAGMENT_BIT + 1),
-		(seq & ((1 << (DNS_FRAGMENT_BIT + 1)) - 1)) >> 1,
-		more_fragment
 }
 
 const DNS_UPSTREAM_MAX_LEN_PER_LABEL = 35
@@ -79,6 +65,7 @@ type DNSTransportUpstreamCodec struct {
 	domain             string
 	domain_label_count int
 	max_len_per_name   int
+	header_codec       *bitcodec.Bitcodec
 }
 
 func NewDNSTransportUpstreamCodec(domain string) (*DNSTransportUpstreamCodec, error) {
@@ -94,6 +81,7 @@ func NewDNSTransportUpstreamCodec(domain string) (*DNSTransportUpstreamCodec, er
 	if tmp := name_len % 64; tmp > 9 {
 		ret.max_len_per_name += (tmp - 1) / 8 * 5
 	}
+	ret.header_codec = bitcodec.NewBitcodec(&DNSCodecHeader{})
 
 	return &ret, nil
 }
@@ -102,10 +90,9 @@ func (x *DNSTransportUpstreamCodec) GetMaxLength() int {
 	return x.max_len_per_name
 }
 
-func (x *DNSTransportUpstreamCodec) Encode(msg []byte,
-	seq uint32, segment uint32, more_segment bool) string {
-	seq_bytes := encode_seq(seq, segment, more_segment)
-	ret := base32.StdEncoding.EncodeToString(seq_bytes[:])
+func (x *DNSTransportUpstreamCodec) Encode(msg []byte, header DNSCodecHeader) string {
+	header_bytes := x.header_codec.EncodeToBytes(&header)
+	ret := base32.StdEncoding.EncodeToString(header_bytes[:])
 	for i := 0; i < len(msg); i += DNS_UPSTREAM_MAX_LEN_PER_LABEL {
 		j := i + DNS_UPSTREAM_MAX_LEN_PER_LABEL
 		if j > len(msg) {
@@ -117,18 +104,19 @@ func (x *DNSTransportUpstreamCodec) Encode(msg []byte,
 	return ret
 }
 
-func (x *DNSTransportUpstreamCodec) Decode(msg string) ([]byte, uint32, uint32, bool) {
+func (x *DNSTransportUpstreamCodec) Decode(msg string) ([]byte, DNSCodecHeader) {
 	var ret []byte
+	var header DNSCodecHeader
 	labels := dns.SplitDomainName(msg)
 	if len(labels) < 1+x.domain_label_count {
-		return nil, 0, 0, false
+		return nil, header
 	}
 
-	seq_bytes, err := base32.StdEncoding.DecodeString(labels[0])
+	header_bytes, err := base32.StdEncoding.DecodeString(labels[0])
 	if err != nil {
-		return nil, 0, 0, false
+		return nil, header
 	}
-	seq, fragment, more_fragment := decode_seq(seq_bytes)
+	x.header_codec.DecodeFromBytes(header_bytes, &header)
 
 	labels = labels[1 : len(labels)-x.domain_label_count]
 	for _, label := range labels {
@@ -138,47 +126,55 @@ func (x *DNSTransportUpstreamCodec) Decode(msg string) ([]byte, uint32, uint32, 
 			ret = append(ret, data...)
 		}
 	}
-	return ret, seq, fragment, more_fragment
+	return ret, header
 }
 
 const DNS_MAX_TXT_LENGTH = 255
 
-type DNSTransportDownstreamCodec struct{}
+type DNSTransportDownstreamCodec struct {
+	header_codec *bitcodec.Bitcodec
+}
+
+func NewDNSTransportDownstreamCodec() *DNSTransportDownstreamCodec {
+	codec := DNSTransportDownstreamCodec{}
+	codec.header_codec = bitcodec.NewBitcodec(&DNSCodecHeader{})
+	return &codec
+}
 
 func (x *DNSTransportDownstreamCodec) GetMaxLength() int {
 	// ascii85
 	return (DNS_MAX_TXT_LENGTH - 5) / 5 * 4 // 5 byte for seq
 }
 
-func (x *DNSTransportDownstreamCodec) Encode(msg []byte,
-	seq uint32, segment uint32, more_segment bool) string {
+func (x *DNSTransportDownstreamCodec) Encode(msg []byte, header DNSCodecHeader) string {
+	header_bytes := x.header_codec.EncodeToBytes(&header)
 
-	seq_bytes := encode_seq(seq, segment, more_segment)
 	dst := make([]byte, ascii85.MaxEncodedLen(4+len(msg)))
 
-	ret_len := ascii85.Encode(dst[0:5], seq_bytes[:])
+	ret_len := ascii85.Encode(dst[0:5], header_bytes[:])
 	ret_len += ascii85.Encode(dst[5:], msg)
 
 	return string(dst[:ret_len])
 }
 
-func (x *DNSTransportDownstreamCodec) Decode(msg string) ([]byte, uint32, uint32, bool) {
+func (x *DNSTransportDownstreamCodec) Decode(msg string) ([]byte, DNSCodecHeader) {
 	src := []byte(msg)
-	var seq_bytes [4]byte
+	var header DNSCodecHeader
 
-	ndst, _, err := ascii85.Decode(seq_bytes[:], src[0:5], true)
+	var header_bytes [4]byte
+	ndst, _, err := ascii85.Decode(header_bytes[:], src[0:5], true)
 	if ndst != 4 || err != nil {
-		return nil, 0, 0, false
+		return nil, header
 	}
-	seq, fragment, more_fragment := decode_seq(seq_bytes[:])
+	x.header_codec.DecodeFromBytes(header_bytes[:], &header)
 
 	ret := make([]byte, len(msg)/5*4)
 	ndst, _, err = ascii85.Decode(ret, src[5:], true)
 	if err != nil {
-		return nil, 0, 0, false
+		return nil, header
 	}
 
-	return ret[:ndst], seq, fragment, more_fragment
+	return ret[:ndst], header
 }
 
 const DNS_STREAM_WINDOW_SIZE = 64
@@ -205,7 +201,15 @@ func (x *DNSTransportStream) Encode(msg []byte) []string {
 		if j > len(msg) {
 			j = len(msg)
 		}
-		ret = append(ret, x.codec.Encode(msg[i:j], x.send_seq, segment, j != len(msg)))
+		var has_more_fragment byte = 1
+		if j == len(msg) {
+			has_more_fragment = 0
+		}
+		ret = append(ret, x.codec.Encode(msg[i:j], DNSCodecHeader{
+			Seq:            x.send_seq,
+			FragmentNumber: segment,
+			MoreFragment:   has_more_fragment,
+		}))
 		segment += 1
 	}
 	x.send_seq += 1
@@ -224,30 +228,30 @@ func _cmp_seq(x, y uint32) bool {
 
 // return nil if no whole packet is available
 func (x *DNSTransportStream) Decode(msg string) []byte {
-	dat, seq, frag, more_frag := x.codec.Decode(msg)
+	dat, header := x.codec.Decode(msg)
 	if dat == nil {
 		return nil
 	}
 
-	box := &x.recv_window[seq%DNS_STREAM_WINDOW_SIZE]
-	if box.in_use && _cmp_seq(seq, box.seq) {
+	box := &x.recv_window[header.Seq%DNS_STREAM_WINDOW_SIZE]
+	if box.in_use && _cmp_seq(header.Seq, box.seq) {
 		// this packet is too late
 		return nil
 	}
-	if box.in_use && seq == box.seq && (box.fragments_bits&(1<<frag)) != 0 {
+	if box.in_use && header.Seq == box.seq && (box.fragments_bits&(1<<header.FragmentNumber)) != 0 {
 		return nil
 	}
-	if !box.in_use || box.seq != seq {
+	if !box.in_use || box.seq != header.Seq {
 		// clear this box
 		box.in_use = true
-		box.seq = seq
+		box.seq = header.Seq
 		box.fragments_bits = 0
 		box.fragment_count = 0
 	}
-	box.fragments_bits |= (1 << frag)
-	box.fragments[frag] = dat
-	if !more_frag {
-		box.fragment_count = frag + 1
+	box.fragments_bits |= (1 << header.FragmentNumber)
+	box.fragments[header.FragmentNumber] = dat
+	if header.MoreFragment == 0 {
+		box.fragment_count = header.FragmentNumber + 1
 	}
 
 	var ret []byte
